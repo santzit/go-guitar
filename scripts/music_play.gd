@@ -24,9 +24,10 @@ const STRING_COLORS: Array = [
 const STRING_KEYS: Array = [KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N]
 
 ## ── Timing ───────────────────────────────────────────────────────────────────
-const LOOK_AHEAD: float  = 3.5    # seconds of notes visible ahead of hit line
-const HIT_WINDOW: float  = 0.18   # seconds tolerance for registering a hit
-const START_DELAY: float = 3.0    # lead-in before first note
+const LOOK_AHEAD: float      = 3.5    # seconds of notes visible ahead of hit line
+const HIT_WINDOW: float      = 0.18   # seconds tolerance for registering a hit
+const START_DELAY: float     = 3.0    # lead-in before first note
+const FINGER_PREVIEW: float  = 2.0    # seconds ahead where fretboard finger guides appear
 
 ## ── Fretboard (bottom strip) ─────────────────────────────────────────────────
 const FRETBOARD_TOP: float    = 580.0
@@ -215,61 +216,92 @@ func _note_y(beat_time: float) -> float:
 	var time_to_hit: float = (float(beat_time) + START_DELAY) - current_time
 	return HIT_Y - (time_to_hit / LOOK_AHEAD) * (HIT_Y - VANISH_Y)
 
+## Returns an Array[float] of size NUM_STRINGS: the nearest time-to-hit (s) for
+## an active note on each string within the look-ahead window, INF when none.
+func _build_nearest_times() -> Array:
+	var nearest: Array = [INF, INF, INF, INF, INF, INF]
+	for note in notes:
+		if note.get("hit", false) or note.get("missed", false):
+			continue
+		var si: int    = int(note["string"])
+		var tth: float = (float(note["time"]) + START_DELAY) - current_time
+		if tth < -HIT_WINDOW or tth >= LOOK_AHEAD:
+			continue
+		if tth < nearest[si]:
+			nearest[si] = tth
+	return nearest
+
 # ── _draw ─────────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
+	var nearest: Array = _build_nearest_times()
 	_draw_background()
 	_draw_highway()
 	_draw_string_lanes()
-	_draw_hit_zone()
+	_draw_hit_zone(nearest)
 	_draw_notes()
-	_draw_fretboard()
+	_draw_fretboard(nearest)
 
 func _draw_background() -> void:
-	draw_rect(Rect2(0, 0, 1280, 720), Color(0.04, 0.04, 0.09))
+	draw_rect(Rect2(0, 0, 1280, 720), Color(0.01, 0.03, 0.07))
 
 func _draw_highway() -> void:
-	# Trapezoid background
+	# Very dark near-black navy background — Rocksmith style
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(VANISH_X, VANISH_Y),
 		Vector2(VANISH_X - HIGHWAY_HALF_W, HIT_Y),
 		Vector2(VANISH_X + HIGHWAY_HALF_W, HIT_Y),
-	]), Color(0.07, 0.07, 0.14))
+	]), Color(0.02, 0.03, 0.08))
 
-	# Subtle horizontal grid lines (simulate fret positions receding into distance)
+	# White horizontal fret grid lines receding into the distance
 	for fi in range(1, 13):
 		var t: float     = float(fi) / 12.0
 		var y: float     = VANISH_Y + t * (HIT_Y - VANISH_Y)
 		var hw: float    = HIGHWAY_HALF_W * t
-		var alpha: float = 0.06 + t * 0.10
+		var alpha: float = 0.08 + t * 0.16
 		draw_line(
 			Vector2(VANISH_X - hw, y),
 			Vector2(VANISH_X + hw, y),
-			Color(0.4, 0.4, 0.55, alpha), 1.0
+			Color(0.70, 0.80, 1.00, alpha), 1.0
 		)
 
 func _draw_string_lanes() -> void:
+	# Thin white/light-blue lane separator lines between strings (very subtle)
 	for i in range(NUM_STRINGS + 1):
 		var frac: float  = float(i) / NUM_STRINGS
 		var x_hit: float = (VANISH_X - HIGHWAY_HALF_W) + frac * HIGHWAY_HALF_W * 2.0
-		var col: Color
-		if i < NUM_STRINGS:
-			col = STRING_COLORS[i].darkened(0.55)
-		else:
-			col = Color(0.3, 0.3, 0.3, 0.5)
-		draw_line(Vector2(VANISH_X, VANISH_Y), Vector2(x_hit, HIT_Y), col, 1.2)
+		draw_line(Vector2(VANISH_X, VANISH_Y), Vector2(x_hit, HIT_Y),
+			Color(0.55, 0.70, 0.95, 0.28), 0.8)
 
-func _draw_hit_zone() -> void:
+	# Bright glowing colored string lines at the centre of each lane — Rocksmith style.
+	# Each string is drawn twice: a wide semi-transparent outer glow + a thin bright core.
+	for i in range(NUM_STRINGS):
+		var x_hit: float = _lane_x(i, HIT_Y)
+		var col: Color   = STRING_COLORS[i]
+		# Outer glow
+		draw_line(Vector2(VANISH_X, VANISH_Y), Vector2(x_hit, HIT_Y),
+			Color(col.r, col.g, col.b, 0.22), 4.5)
+		# Bright core
+		draw_line(Vector2(VANISH_X, VANISH_Y), Vector2(x_hit, HIT_Y),
+			Color(col.r, col.g, col.b, 0.90), 1.5)
+
+func _draw_hit_zone(nearest: Array) -> void:
 	for i in range(NUM_STRINGS):
 		var cx: float    = _lane_x(i, HIT_Y)
 		var hw: float    = _lane_half_w(HIT_Y) * 0.72
 		var col: Color   = STRING_COLORS[i]
 		var flash: float = string_flash[i]
 
-		# Outer glow (brightens on key press)
+		# Proximity glow: ramps from 0 at 2 s out to full at the hit line.
+		var tth: float  = nearest[i]
+		var prox: float = 0.0
+		if tth < INF:
+			prox = clamp(1.0 - tth / 2.0, 0.0, 1.0)
+
+		# Outer glow (brightens on key press AND as note approaches)
 		draw_rect(
 			Rect2(cx - hw - 5, HIT_Y - 7, hw * 2 + 10, 14),
-			Color(col.r, col.g, col.b, 0.25 + flash * 0.55)
+			Color(col.r, col.g, col.b, 0.25 + flash * 0.55 + prox * 0.35)
 		)
 		# Solid inner pad
 		draw_rect(
@@ -325,11 +357,11 @@ func _draw_notes() -> void:
 				Color(0.05, 0.05, 0.05)
 			)
 
-func _draw_fretboard() -> void:
-	var fb_top: float      = FRETBOARD_TOP
-	var fb_w: float        = 1280.0
-	var str_sp: float      = FRETBOARD_HEIGHT / (NUM_STRINGS + 1)
-	var font: Font         = ThemeDB.fallback_font
+func _draw_fretboard(nearest: Array) -> void:
+	var fb_top: float  = FRETBOARD_TOP
+	var fb_w: float    = 1280.0
+	var str_sp: float  = FRETBOARD_HEIGHT / (NUM_STRINGS + 1)
+	var font: Font     = ThemeDB.fallback_font
 
 	# Fretboard body
 	draw_rect(Rect2(0, fb_top, fb_w, FRETBOARD_HEIGHT), Color(0.32, 0.22, 0.09))
@@ -361,18 +393,39 @@ func _draw_fretboard() -> void:
 		var r: float     = 6.0 if mf == 12 else 4.5
 		draw_circle(Vector2(fx, my), r, Color(0.45, 0.35, 0.18))
 
-	# Guitar strings
+	# Guitar strings — brighten for strings that have an incoming note.
 	for i in range(NUM_STRINGS):
 		var sy: float        = fb_top + (i + 1) * str_sp
 		var thickness: float = 3.8 - i * 0.45
-		draw_line(Vector2(0, sy), Vector2(fb_w, sy), STRING_COLORS[i], thickness)
+		var tth: float       = nearest[i]
+		var col: Color
+		if tth < INF:
+			var t: float = clamp(1.0 - tth / LOOK_AHEAD, 0.0, 1.0)
+			col = STRING_COLORS[i].lightened(t * 0.45)
+		else:
+			col = STRING_COLORS[i].darkened(0.30)
+		draw_line(Vector2(0, sy), Vector2(fb_w, sy), col, thickness)
 
-	# Active note indicators on fretboard (highlight the fret to press)
+	# String-name labels on the left edge (E A D G B e)
+	for i in range(NUM_STRINGS):
+		var sy: float  = fb_top + (i + 1) * str_sp
+		var col: Color = STRING_COLORS[i] if nearest[i] < INF else STRING_COLORS[i].darkened(0.35)
+		draw_string(
+			font,
+			Vector2(4, sy + 5),
+			STRING_NAMES[i],
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 13,
+			col
+		)
+
+	# Finger-position indicators — shown for notes within FINGER_PREVIEW seconds.
+	# Dots grow in size and opacity as the note approaches (prepare → play).
 	for note in notes:
 		if note.get("hit", false) or note.get("missed", false):
 			continue
-		var time_to_hit: float = (float(note["time"]) + START_DELAY) - current_time
-		if absf(time_to_hit) > HIT_WINDOW * 3.0:
+		var tth: float = (float(note["time"]) + START_DELAY) - current_time
+		if tth < -HIT_WINDOW or tth > FINGER_PREVIEW:
 			continue
 
 		var si: int   = int(note["string"])
@@ -380,17 +433,26 @@ func _draw_fretboard() -> void:
 		if fret <= 0 or fret > NUM_DISPLAY_FRETS:
 			continue
 
-		var fx: float  = (float(fret) - 0.5) / NUM_DISPLAY_FRETS * fb_w
-		var sy: float  = fb_top + (si + 1) * str_sp
-		var col: Color = STRING_COLORS[si]
+		# prox: 0.0 = FINGER_PREVIEW seconds away, 1.0 = at hit line
+		var prox: float = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
+		var col: Color  = STRING_COLORS[si]
+		var fx: float   = (float(fret) - 0.5) / NUM_DISPLAY_FRETS * fb_w
+		var sy: float   = fb_top + (si + 1) * str_sp
 
-		draw_circle(Vector2(fx, sy), 13.0, Color(col.r, col.g, col.b, 0.30))
-		draw_circle(Vector2(fx, sy), 9.0,  col)
+		# Outer halo (dim/small when far; grows with proximity)
+		var halo_r: float = lerp(5.0, 14.0, prox)
+		draw_circle(Vector2(fx, sy), halo_r + 3.0,
+			Color(col.r, col.g, col.b, 0.15 + prox * 0.20))
+		# Filled dot
+		draw_circle(Vector2(fx, sy), halo_r,
+			Color(col.r, col.g, col.b, 0.55 + prox * 0.45))
+		# Fret number — always readable
+		var fs: int = clamp(int(lerp(9.0, 12.0, prox)), 9, 12)
 		draw_string(
 			font,
-			Vector2(fx, sy + 5),
+			Vector2(fx, sy + fs * 0.45),
 			str(fret),
 			HORIZONTAL_ALIGNMENT_CENTER,
-			-1, 11,
+			-1, fs,
 			Color(0.05, 0.05, 0.05)
 		)

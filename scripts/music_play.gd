@@ -437,22 +437,42 @@ func _draw_fretboard(nearest: Array) -> void:
 		)
 
 	# ── Finger-position indicators ───────────────────────────────────────────
-	# Shown for notes within FINGER_PREVIEW seconds of the hit time.
-	# XY coordinates: X = slot centre for the fret, Y = row centre for the string.
-	# Max dot radius is capped to half the row height so dots never bleed across rows.
+	# Show ONE indicator per string — the nearest upcoming note only.
+	# Multiple dots per row (e.g. fret-1 and fret-2 side-by-side) are confusing;
+	# one dot per row stacks them cleanly in the fretboard grid.
+	# XY: X = slot centre for the fret, Y = row centre for the string.
+	# Max dot radius capped so dots stay within their row.
 	var max_r: float = row_h * 0.42  # fits inside each string row
+
+	# Build nearest upcoming note per string within FINGER_PREVIEW.
+	var nearest_note: Array = []
+	nearest_note.resize(NUM_STRINGS)
+	for i in range(NUM_STRINGS):
+		nearest_note[i] = null
 	for note in notes:
 		if note.get("hit", false) or note.get("missed", false):
 			continue
 		var tth: float = (float(note["time"]) + START_DELAY) - current_time
 		if tth < -HIT_WINDOW or tth > FINGER_PREVIEW:
 			continue
+		var si: int = int(note["string"])
+		if nearest_note[si] == null:
+			nearest_note[si] = note
+		else:
+			var existing_tth: float = (float(nearest_note[si]["time"]) + START_DELAY) - current_time
+			if tth < existing_tth:
+				nearest_note[si] = note
 
+	# Draw one indicator per string.
+	for i in range(NUM_STRINGS):
+		var note = nearest_note[i]
+		if note == null:
+			continue
+		var tth: float  = (float(note["time"]) + START_DELAY) - current_time
 		var si: int     = int(note["string"])
 		var fret: int   = int(note.get("fret", 0))
 		var prox: float = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
 		var col: Color  = STRING_COLORS[si]
-		# Row-centre Y for this string
 		var sy: float   = fb_top + (si + 0.5) * row_h
 
 		if fret == 0:

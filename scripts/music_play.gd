@@ -1,12 +1,12 @@
 extends Node2D
 
-## ── Perspective highway constants ────────────────────────────────────────────
-## The highway converges from a vanishing point at the top of the screen toward
-## a "hit line" near the bottom, giving a Rocksmith-style 3-D perspective feel.
-const VANISH_X: float     = 640.0
-const VANISH_Y: float     = 100.0
-const HIT_Y: float        = 560.0
-const HIGHWAY_HALF_W: float = 420.0   # half-width of highway at the hit line
+## ── Scrolling tab highway constants ─────────────────────────────────────────
+## The highway is a 2D scrolling-tab view (no 3D perspective):
+##   Y axis = string row  (index 0 = low-E at top … index 5 = high-e at bottom)
+##   X axis = time        (hit zone on left; future notes scroll in from right)
+## Notes at the same beat time stack vertically in their string rows.
+const HIT_X: float    = 80.0    # X of the vertical hit zone line
+const HW_TOP: float   = 75.0    # Top of the highway (below HUD title / score)
 
 ## ── Guitar string setup ──────────────────────────────────────────────────────
 const NUM_STRINGS: int = 6
@@ -202,22 +202,16 @@ func _process(delta: float) -> void:
 
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 
-## X coordinate of the centre of lane `lane` at screen height `y`.
-func _lane_x(lane: int, y: float) -> float:
-	var progress: float = (y - VANISH_Y) / (HIT_Y - VANISH_Y)
-	var left_x: float   = VANISH_X - HIGHWAY_HALF_W * progress
-	var total_w: float  = HIGHWAY_HALF_W * 2.0 * progress
-	return left_x + (lane + 0.5) * total_w / NUM_STRINGS
+## X screen coordinate for a note whose time-to-hit is `tth` seconds.
+## tth = 0          → HIT_X  (at the hit zone)
+## tth = LOOK_AHEAD → 1280.0 (right edge, about to enter view)
+func _note_x(tth: float) -> float:
+	return HIT_X + (tth / LOOK_AHEAD) * (1280.0 - HIT_X)
 
-## Half-width of a lane at screen height `y`.
-func _lane_half_w(y: float) -> float:
-	var progress: float = (y - VANISH_Y) / (HIT_Y - VANISH_Y)
-	return (HIGHWAY_HALF_W * 2.0 * progress) / NUM_STRINGS * 0.5
-
-## Convert a note's song-time (in seconds, before START_DELAY) to screen Y.
-func _note_y(beat_time: float) -> float:
-	var time_to_hit: float = (float(beat_time) + START_DELAY) - current_time
-	return HIT_Y - (time_to_hit / LOOK_AHEAD) * (HIT_Y - VANISH_Y)
+## Y screen centre of highway string row `s` (0 = low-E at top, 5 = high-e at bottom).
+func _string_row_y(s: int) -> float:
+	var row_h: float = (FRETBOARD_TOP - HW_TOP) / NUM_STRINGS
+	return HW_TOP + (s + 0.5) * row_h
 
 ## Returns an Array[float] of size NUM_STRINGS: the nearest time-to-hit (s) for
 ## an active note on each string within the look-ahead window, INF when none.
@@ -251,106 +245,107 @@ func _draw_background() -> void:
 	draw_rect(Rect2(0, 0, 1280, 720), Color(0.01, 0.03, 0.07))
 
 func _draw_highway() -> void:
-	# Very dark near-black navy background — Rocksmith style
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(VANISH_X, VANISH_Y),
-		Vector2(VANISH_X - HIGHWAY_HALF_W, HIT_Y),
-		Vector2(VANISH_X + HIGHWAY_HALF_W, HIT_Y),
-	]), Color(0.02, 0.03, 0.08))
-
-	# White horizontal fret grid lines receding into the distance
-	for fi in range(1, 13):
-		var t: float     = float(fi) / 12.0
-		var y: float     = VANISH_Y + t * (HIT_Y - VANISH_Y)
-		var hw: float    = HIGHWAY_HALF_W * t
-		var alpha: float = 0.08 + t * 0.16
-		draw_line(
-			Vector2(VANISH_X - hw, y),
-			Vector2(VANISH_X + hw, y),
-			Color(0.70, 0.80, 1.00, alpha), 1.0
-		)
+	var hw_h: float = FRETBOARD_TOP - HW_TOP
+	# Dark near-black background for the whole highway area
+	draw_rect(Rect2(0.0, HW_TOP, 1280.0, hw_h), Color(0.02, 0.03, 0.08))
+	# Faint vertical time-grid lines (every 0.5 s of look-ahead)
+	var step: float = 0.5
+	var t: float    = step
+	while t < LOOK_AHEAD:
+		var lx: float = _note_x(t)
+		draw_line(Vector2(lx, HW_TOP), Vector2(lx, FRETBOARD_TOP),
+			Color(0.25, 0.32, 0.55, 0.18), 1.0)
+		t += step
 
 func _draw_string_lanes() -> void:
-	# Dark highway divided only by thin blue lines — Rocksmith style.
-	# No permanent coloured string lines; colour only appears on note indicators.
-	for i in range(NUM_STRINGS + 1):
-		var frac: float  = float(i) / NUM_STRINGS
-		var x_hit: float = (VANISH_X - HIGHWAY_HALF_W) + frac * HIGHWAY_HALF_W * 2.0
-		draw_line(Vector2(VANISH_X, VANISH_Y), Vector2(x_hit, HIT_Y),
-			Color(0.18, 0.42, 0.90, 0.50), 1.0)
+	var row_h: float = (FRETBOARD_TOP - HW_TOP) / NUM_STRINGS
+	var font: Font   = ThemeDB.fallback_font
+	for i in range(NUM_STRINGS):
+		var ry: float  = HW_TOP + i * row_h
+		var sy: float  = ry + row_h * 0.5
+		# Alternating row tints (note play-area only, right of hit zone)
+		var bg: Color  = Color(0.04, 0.05, 0.11) if (i % 2 == 0) else Color(0.02, 0.03, 0.07)
+		draw_rect(Rect2(HIT_X, ry, 1280.0 - HIT_X, row_h), bg)
+		# Row divider
+		if i > 0:
+			draw_line(Vector2(0.0, ry), Vector2(1280.0, ry),
+				Color(0.20, 0.28, 0.48, 0.45), 1.0)
+		# String name label to the left of the hit zone
+		draw_string(font, Vector2(4.0, sy + 5.0), STRING_NAMES[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, STRING_COLORS[i])
+	# Bottom border of highway
+	draw_line(Vector2(0.0, FRETBOARD_TOP), Vector2(1280.0, FRETBOARD_TOP),
+		Color(0.30, 0.42, 0.65, 0.60), 2.0)
 
 func _draw_hit_zone(nearest: Array) -> void:
+	var row_h: float  = (FRETBOARD_TOP - HW_TOP) / NUM_STRINGS
+	var r_base: float = row_h * 0.28
+	# Vertical glowing hit line
+	draw_line(Vector2(HIT_X, HW_TOP), Vector2(HIT_X, FRETBOARD_TOP),
+		Color(0.70, 0.82, 1.00, 0.80), 2.0)
 	for i in range(NUM_STRINGS):
-		var cx: float    = _lane_x(i, HIT_Y)
-		var hw: float    = _lane_half_w(HIT_Y) * 0.72
+		var sy: float    = _string_row_y(i)
 		var col: Color   = STRING_COLORS[i]
 		var flash: float = string_flash[i]
-
-		# Proximity glow: ramps from 0 at FINGER_PREVIEW seconds out to full at the hit line.
-		var tth: float  = nearest[i]
-		var prox: float = 0.0
+		var tth: float   = nearest[i]
+		var prox: float  = 0.0
 		if tth < INF:
 			prox = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
-
-		# Outer glow (brightens on key press AND as note approaches)
-		draw_rect(
-			Rect2(cx - hw - 5, HIT_Y - 7, hw * 2 + 10, 14),
-			Color(col.r, col.g, col.b, 0.25 + flash * 0.55 + prox * 0.35)
-		)
-		# Solid inner pad
-		draw_rect(
-			Rect2(cx - hw, HIT_Y - 4, hw * 2, 8),
-			Color(col.r, col.g, col.b, 0.85 + flash * 0.15)
-		)
+		# Outer glow (brightens when a note is near or a key is pressed)
+		draw_circle(Vector2(HIT_X, sy), r_base + 5.0,
+			Color(col.r, col.g, col.b, 0.18 + flash * 0.40 + prox * 0.28))
+		# Solid indicator circle
+		draw_circle(Vector2(HIT_X, sy), r_base,
+			Color(col.r, col.g, col.b, 0.72 + flash * 0.28))
 
 func _draw_notes() -> void:
-	var font: Font = ThemeDB.fallback_font
+	var font: Font    = ThemeDB.fallback_font
+	var row_h: float  = (FRETBOARD_TOP - HW_TOP) / NUM_STRINGS
+	var note_r: float = row_h * 0.30   # note circle radius
 
 	for note in notes:
 		if note.get("hit", false):
 			continue
 
-		var y: float  = _note_y(float(note["time"]))
-		var s: int    = int(note["string"])
-		var fret: int = int(note.get("fret", 0))
+		var s: int     = int(note["string"])
+		var fret: int  = int(note.get("fret", 0))
+		var tth: float = (float(note["time"]) + START_DELAY) - current_time
 
-		# Visible range: slightly above the vanishing point to just below the hit line
-		if y < VANISH_Y - 20.0 or y > HIT_Y + 80.0:
-			if y > HIT_Y + 40.0 and not note.get("missed", false):
+		# Skip notes outside the visible window; mark overdue ones as missed.
+		if tth < -HIT_WINDOW or tth >= LOOK_AHEAD:
+			if tth < -HIT_WINDOW and not note.get("missed", false):
 				note["missed"] = true
 				combo           = 0
 				GameState.combo = 0
 			continue
 
+		var nx: float  = _note_x(tth)
+		var sy: float  = _string_row_y(s)
 		var col: Color = STRING_COLORS[s]
-		var cx: float  = _lane_x(s, y)
-		var hw: float  = _lane_half_w(y) * 0.78
 
 		if fret == 0:
-			# Open string: glowing horizontal line across the full lane width
-			var lw: float = maxf(3.0, hw * 0.22)
-			# Outer glow
-			draw_line(Vector2(cx - hw, y), Vector2(cx + hw, y),
-				Color(col.r, col.g, col.b, 0.35), lw * 2.5)
-			# Bright core
-			draw_line(Vector2(cx - hw, y), Vector2(cx + hw, y),
-				Color(col.r, col.g, col.b, 0.95), lw)
+			# Open string: outlined circle (ring) to distinguish from fretted notes
+			draw_arc(Vector2(nx, sy), note_r + 2.0, 0.0, TAU, 32,
+				Color(col.r, col.g, col.b, 0.30), 4.0)
+			draw_arc(Vector2(nx, sy), note_r, 0.0, TAU, 32, col, 2.5)
+			# "0" label
+			var fs: int = clamp(int(note_r * 0.88), 9, 15)
+			draw_string(font, Vector2(nx, sy + fs * 0.38), "0",
+				HORIZONTAL_ALIGNMENT_CENTER, -1, fs, col)
 		else:
-			# Fretted note: small colored rectangle (finger indicator)
-			var nh: float = maxf(6.0, hw * 0.45)
-			var fw: float = hw * 0.70
-			# Shadow
-			draw_rect(Rect2(cx - fw - 1, y - nh * 0.5 - 1, fw * 2 + 2, nh + 2),
-				Color(0, 0, 0, 0.55))
-			# Body
-			draw_rect(Rect2(cx - fw, y - nh * 0.5, fw * 2, nh), col)
-			# Highlight streak
-			draw_rect(Rect2(cx - fw, y - nh * 0.5, fw * 2, nh * 0.35),
-				Color(1, 1, 1, 0.25))
-			# Fret number (when large enough to be legible)
-			if fw >= 12.0:
-				var fs: int = clamp(int(fw * 0.85), 10, 20)
-				draw_string(font, Vector2(cx, y + fs * 0.35), str(fret),
+			# Fretted note: filled circle + fret label
+			# Outer glow halo
+			draw_circle(Vector2(nx, sy), note_r + 3.0,
+				Color(col.r, col.g, col.b, 0.22))
+			# Filled body
+			draw_circle(Vector2(nx, sy), note_r, col)
+			# Bright highlight spot
+			draw_circle(Vector2(nx, sy - note_r * 0.28), note_r * 0.38,
+				Color(1.0, 1.0, 1.0, 0.30))
+			# Fret number label
+			if note_r >= 8.0:
+				var fs: int = clamp(int(note_r * 0.88), 9, 15)
+				draw_string(font, Vector2(nx, sy + fs * 0.38), str(fret),
 					HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))
 
 func _draw_fretboard(nearest: Array) -> void:
@@ -463,7 +458,8 @@ func _draw_fretboard(nearest: Array) -> void:
 			if tth < existing_tth:
 				nearest_note[si] = note
 
-	# Draw one indicator per string.
+	# Draw one indicator per string (fretted notes only; open strings have no
+	# fret to highlight so they are indicated on the highway instead).
 	for i in range(NUM_STRINGS):
 		var note = nearest_note[i]
 		if note == null:
@@ -471,33 +467,24 @@ func _draw_fretboard(nearest: Array) -> void:
 		var tth: float  = (float(note["time"]) + START_DELAY) - current_time
 		var si: int     = int(note["string"])
 		var fret: int   = int(note.get("fret", 0))
+		if fret == 0:
+			continue   # open string — no fretboard dot needed
 		var prox: float = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
 		var col: Color  = STRING_COLORS[si]
 		var sy: float   = fb_top + (si + 0.5) * row_h
-
-		if fret == 0:
-			# Open string: glow the full string to signal play-open
-			var lw: float = lerp(1.5, minf(4.0, max_r), prox)
-			draw_line(Vector2(label_w, sy), Vector2(fb_w, sy),
-				Color(col.r, col.g, col.b, 0.20 + prox * 0.45), lw + 3.0)
-			draw_line(Vector2(label_w, sy), Vector2(fb_w, sy),
-				Color(col.r, col.g, col.b, 0.65 + prox * 0.35), lw)
-		else:
-			# Fretted note: dot at the exact fret × string intersection.
-			# X = slot centre: (fret - 0.5) / NUM_DISPLAY_FRETS * play_w + label_w
-			# Y = string row centre: fb_top + (string + 0.5) * row_h
-			if fret > NUM_DISPLAY_FRETS:
-				continue
-			var fx: float   = label_w + (float(fret) - 0.5) / NUM_DISPLAY_FRETS * play_w
-			var r: float    = lerp(max_r * 0.45, max_r, prox)
-			# Outer halo
-			draw_circle(Vector2(fx, sy), r + 2.0,
-				Color(col.r, col.g, col.b, 0.20 + prox * 0.25))
-			# Filled dot
-			draw_circle(Vector2(fx, sy), r,
-				Color(col.r, col.g, col.b, 0.65 + prox * 0.35))
-			# Fret number inside the dot (only when large enough)
-			if r >= 6.0:
-				var fs: int = clamp(int(r * 1.1), 8, 12)
-				draw_string(font, Vector2(fx, sy + fs * 0.38), str(fret),
-					HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))
+		# Fretted note: dot at the exact fret × string intersection.
+		if fret > NUM_DISPLAY_FRETS:
+			continue
+		var fx: float = label_w + (float(fret) - 0.5) / NUM_DISPLAY_FRETS * play_w
+		var r: float  = lerp(max_r * 0.45, max_r, prox)
+		# Outer halo
+		draw_circle(Vector2(fx, sy), r + 2.0,
+			Color(col.r, col.g, col.b, 0.20 + prox * 0.25))
+		# Filled dot
+		draw_circle(Vector2(fx, sy), r,
+			Color(col.r, col.g, col.b, 0.65 + prox * 0.35))
+		# Fret number inside the dot (only when large enough)
+		if r >= 6.0:
+			var fs: int = clamp(int(r * 1.1), 8, 12)
+			draw_string(font, Vector2(fx, sy + fs * 0.38), str(fret),
+				HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))

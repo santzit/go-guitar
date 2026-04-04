@@ -176,9 +176,10 @@ impl GpParser {
 
     /// Compute a measure's total duration in ticks from its time signature.
     ///
-    /// For 4/4 at DURATION_QUARTER_TIME = 960:  4 × 960 = 3840 ticks.
-    /// For 3/4:                                  3 × 960 = 2880 ticks.
-    /// For 6/8:                               6 × 480   = 2880 ticks.
+    /// Examples:
+    /// - 4/4 at DURATION_QUARTER_TIME = 960:  4 beats × 960 ticks/beat = 3840 ticks
+    /// - 3/4:                                  3 beats × 960 ticks/beat = 2880 ticks
+    /// - 6/8:                                  6 beats × 480 ticks/beat = 2880 ticks
     fn measure_duration_ticks(header: &MeasureHeader) -> i64 {
         let beat_ticks = Self::duration_ticks(&header.time_signature.denominator) as i64;
         header.time_signature.numerator as i64 * beat_ticks

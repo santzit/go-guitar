@@ -367,8 +367,12 @@ mod integration {
             let beat_ticks = duration_ticks(&header.time_signature.denominator) as i64;
             measure_tick_offset += header.time_signature.numerator as i64 * beat_ticks;
         }
+        // The Ramones GP5 file has 102 measures at 110 BPM in 4/4 time.
+        // Total duration ≈ 102 × 4 × (60/110) ≈ 222 s.  Asserting > 180 s
+        // (≈ 81 % of the song) reliably catches the within-measure-only
+        // timing regression while tolerating minor BPM/time-signature variation.
         assert!(
-            max_time_sec > 60.0,
+            max_time_sec > 180.0,
             "Last note time {:.1}s is unexpectedly short — \
              timing regression: notes should span the full song duration (~220 s), \
              not just the first measure",

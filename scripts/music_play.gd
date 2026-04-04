@@ -96,7 +96,7 @@ func _load_gp_file(path: String) -> void:
 	file.close()
 
 	var ext: String = path.get_extension().to_lower()
-	var parser      = GpParser.new()                # type resolved at runtime
+	var parser      = ClassDB.instantiate("GpParser") # resolved at runtime via GDExtension
 	var data: Dictionary = parser.parse_bytes(bytes, ext)
 
 	if data.is_empty():

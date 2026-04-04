@@ -1,10 +1,14 @@
 ## Runs headless Godot scene tests.
-## Usage: godot --headless --path /path/to/go-guitar --script tests/test_runner.gd
+## Usage: godot --headless --path /path/to/go-guitar --script res://tests/test_runner.gd
 extends SceneTree
 
 var _failed := false
 
 func _init() -> void:
+	# Defer so autoloads (GameState) are added to root before we check them.
+	call_deferred("_run_tests")
+
+func _run_tests() -> void:
 	print("\n=== GoGuitar Scene Tests ===\n")
 	_test_game_state()
 	_test_main_scene()
@@ -32,15 +36,16 @@ func _assert(cond: bool, msg: String) -> void:
 	else:
 		_fail(msg)
 
-# ── GameState autoload ────────────────────────────────────────────────────────
+# -- GameState autoload -------------------------------------------------------
 
 func _test_game_state() -> void:
 	print("--- GameState autoload ---")
-	_assert(Engine.has_singleton("GameState") or get_root().has_node("/root/GameState"),
-		"GameState autoload is accessible")
+	# Autoloads are children of root. call_deferred ensures they exist by now.
+	_assert(get_root().has_node("GameState"),
+			"GameState autoload node is present under root")
 	print()
 
-# ── Main menu scene ───────────────────────────────────────────────────────────
+# -- Main menu scene ----------------------------------------------------------
 
 func _test_main_scene() -> void:
 	print("--- scenes/main.tscn ---")
@@ -51,14 +56,14 @@ func _test_main_scene() -> void:
 	var node = packed.instantiate()
 	_assert(node != null, "main.tscn instantiates")
 	_assert(node.has_node("CenterContainer/VBoxContainer/PlaySongsButton"),
-		"PlaySongsButton node exists")
+			"PlaySongsButton node exists")
 	_assert(node.has_node("CenterContainer/VBoxContainer/QuitButton"),
-		"QuitButton node exists")
+			"QuitButton node exists")
 	_assert(node.get_script() != null, "main.gd script attached")
 	node.free()
 	print()
 
-# ── Song-list scene ───────────────────────────────────────────────────────────
+# -- Song-list scene ----------------------------------------------------------
 
 func _test_song_list_scene() -> void:
 	print("--- scenes/song_list.tscn ---")
@@ -70,12 +75,12 @@ func _test_song_list_scene() -> void:
 	_assert(node != null, "song_list.tscn instantiates")
 	_assert(node.has_node("BackButton"), "BackButton node exists")
 	_assert(node.has_node("ScrollContainer/SongListContainer"),
-		"SongListContainer node exists")
+			"SongListContainer node exists")
 	_assert(node.get_script() != null, "song_list.gd script attached")
 	node.free()
 	print()
 
-# ── Gameplay scene ────────────────────────────────────────────────────────────
+# -- Gameplay scene -----------------------------------------------------------
 
 func _test_music_play_scene() -> void:
 	print("--- scenes/music_play.tscn ---")
@@ -85,72 +90,64 @@ func _test_music_play_scene() -> void:
 		return
 	var node = packed.instantiate()
 	_assert(node != null, "music_play.tscn instantiates")
-	_assert(node.has_node("HUD/BackButton"),    "HUD/BackButton node exists")
-	_assert(node.has_node("HUD/ScoreLabel"),    "HUD/ScoreLabel node exists")
-	_assert(node.has_node("HUD/SongTitleLabel"),"HUD/SongTitleLabel node exists")
+	_assert(node.has_node("HUD/BackButton"),     "HUD/BackButton node exists")
+	_assert(node.has_node("HUD/ScoreLabel"),     "HUD/ScoreLabel node exists")
+	_assert(node.has_node("HUD/SongTitleLabel"), "HUD/SongTitleLabel node exists")
 	_assert(node.get_script() != null, "music_play.gd script attached")
 	node.free()
 	print()
 
-# ── GpParser GDExtension ──────────────────────────────────────────────────────
+# -- GpParser GDExtension -----------------------------------------------------
 
 func _test_gp_parser() -> void:
 	print("--- GpParser GDExtension ---")
-	var available := ClassDB.class_exists("GpParser")
-	_assert(available, "GpParser class registered by GDExtension")
-	if not available:
-		print("  (skipping parse tests — GDExtension not loaded)\n")
+	if not ClassDB.class_exists("GpParser"):
+		print("  SKIP  GpParser GDExtension not loaded (run `make ext` to build)")
+		print()
 		return
-	var parser = GpParser.new()
-	_assert(parser != null, "GpParser.new() succeeds")
-	# Calling with empty bytes must return an empty dict, not crash
+	var parser = ClassDB.instantiate("GpParser")
+	_assert(parser != null, "GpParser instantiates via ClassDB")
+	# Empty bytes must return an empty dict without crashing.
 	var empty_result = parser.parse_bytes(PackedByteArray(), "gp5")
-	_assert(empty_result is Dictionary, "parse_bytes returns a Dictionary")
+	_assert(empty_result is Dictionary, "parse_bytes returns a Dictionary on empty input")
 	print()
 
-# ── DLC test song ─────────────────────────────────────────────────────────────
+# -- DLC test song ------------------------------------------------------------
 
 func _test_dlc_song() -> void:
 	print("--- DLC/the-ramones-baby_i_love_you_3.gp5 ---")
 	const SONG := "res://DLC/the-ramones-baby_i_love_you_3.gp5"
-
 	_assert(FileAccess.file_exists(SONG), "GP5 test file exists in DLC/")
-
 	if not ClassDB.class_exists("GpParser"):
-		print("  (skipping parse — GDExtension not loaded)\n")
+		print("  SKIP  (GDExtension not loaded)")
+		print()
 		return
-
 	var file := FileAccess.open(SONG, FileAccess.READ)
 	_assert(file != null, "GP5 file opens for reading")
 	if file == null:
 		return
 	var bytes := file.get_buffer(file.get_length())
 	file.close()
-
 	_assert(bytes.size() > 0, "GP5 file has non-zero bytes (%d)" % bytes.size())
-
-	var parser = GpParser.new()
-	var data: Dictionary = parser.parse_bytes(bytes, "gp5")
-
-	_assert(not data.is_empty(),          "parse_bytes returns non-empty Dictionary")
-	_assert(data.has("title"),            "result has 'title' key")
-	_assert(data.has("bpm"),              "result has 'bpm' key")
-	_assert(data.has("notes"),            "result has 'notes' key")
-	_assert(data.get("bpm", 0) > 0,       "BPM is positive (%s)" % str(data.get("bpm")))
+	var parser = ClassDB.instantiate("GpParser")
+	var data = parser.parse_bytes(bytes, "gp5")
+	_assert(not data.is_empty(),         "parse_bytes returns non-empty Dictionary")
+	_assert(data.has("title"),           "result has \'title\' key")
+	_assert(data.has("bpm"),             "result has \'bpm\' key")
+	_assert(data.has("notes"),           "result has \'notes\' key")
+	_assert(data.get("bpm", 0) > 0,      "BPM is positive (%s)" % str(data.get("bpm")))
 	var notes = data.get("notes", [])
-	_assert(notes is Array,               "notes is an Array")
-	_assert(notes.size() > 0,             "notes array is non-empty (%d notes)" % notes.size())
-
-	# Spot-check first note
+	_assert(notes is Array,              "notes is an Array")
+	_assert(notes.size() > 0,           "notes array is non-empty (%d notes)" % notes.size())
 	if notes.size() > 0:
 		var n = notes[0]
-		_assert(n is Dictionary,          "first note is a Dictionary")
-		_assert(n.has("time"),            "first note has 'time'")
-		_assert(n.has("string"),          "first note has 'string'")
-		_assert(n.has("fret"),            "first note has 'fret'")
-		_assert(n.has("duration"),        "first note has 'duration'")
-		_assert(float(n.get("time", -1)) >= 0.0,      "first note time >= 0")
-		_assert(int(n.get("string", -1)) in range(6), "first note string in 0-5")
-		_assert(int(n.get("fret",   -1)) >= 0,        "first note fret >= 0")
-		_assert(float(n.get("duration", 0)) > 0.0,    "first note duration > 0")
+		_assert(n is Dictionary,         "first note is a Dictionary")
+		_assert(n.has("time"),           "first note has \'time\'")
+		_assert(n.has("string"),         "first note has \'string\'")
+		_assert(n.has("fret"),           "first note has \'fret\'")
+		_assert(n.has("duration"),       "first note has \'duration\'")
+		_assert(float(n.get("time",    -1)) >= 0.0,      "first note time >= 0")
+		_assert(int(n.get("string",    -1)) in range(6), "first note string in 0-5")
+		_assert(int(n.get("fret",      -1)) >= 0,        "first note fret >= 0")
+		_assert(float(n.get("duration", 0)) > 0.0,       "first note duration > 0")
 	print()

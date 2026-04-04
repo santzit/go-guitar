@@ -1,5 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
+# But keep the extension list so the GDExtension loads without running the editor
+!.godot/extension_list.cfg
 .nomedia
 
 # Godot-specific ignores

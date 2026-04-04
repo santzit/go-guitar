@@ -23,7 +23,7 @@ press the matching keyboard key when they hit the line to score points.
 
 | Tool | Version |
 |------|---------|
-| [Godot 4](https://godotengine.org/) | 4.1 or newer |
+| [Godot 4](https://godotengine.org/) | 4.4 or newer |
 | [Rust + Cargo](https://rustup.rs/) | stable (1.75+) |
 | [Git](https://git-scm.com/) | any |
 

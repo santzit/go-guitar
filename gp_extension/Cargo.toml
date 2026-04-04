@@ -9,8 +9,8 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Godot 4 Rust bindings
-godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
+# Godot 4 Rust bindings — pin to Godot 4.4 API
+godot = { git = "https://github.com/godot-rust/gdext", branch = "master", features = ["api-4-4"] }
 
 # Guitar Pro parser – package is named "lib" in the workspace, crate name is "scorelib"
 scorelib = { git = "https://github.com/slundi/guitarpro", package = "lib" }

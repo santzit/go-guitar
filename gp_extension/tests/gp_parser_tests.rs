@@ -308,23 +308,72 @@ mod integration {
         let bpm = song.tempo.max(1) as f64;
         let quarter_secs = 60.0 / bpm;
 
+        let mut measure_tick_offset: i64 = 0;
         for measure in &guitar_track.measures {
+            let header = &song.measure_headers[measure.header_index];
             for voice in &measure.voices {
                 for beat in &voice.beats {
                     if let Some(start_ticks) = beat.start {
-                        let time_sec = (start_ticks - DURATION_QUARTER_TIME) as f64
+                        let abs_ticks = measure_tick_offset + start_ticks - DURATION_QUARTER_TIME as i64;
+                        let time_sec = abs_ticks as f64
                             / DURATION_QUARTER_TIME as f64
                             * quarter_secs;
                         assert!(
                             time_sec >= 0.0,
-                            "Note time {} is negative (start_ticks={})",
+                            "Note time {} is negative (abs_ticks={})",
                             time_sec,
-                            start_ticks
+                            abs_ticks
                         );
                     }
                 }
             }
+            // Advance measure offset by this measure's duration in ticks.
+            let beat_ticks = duration_ticks(&header.time_signature.denominator) as i64;
+            measure_tick_offset += header.time_signature.numerator as i64 * beat_ticks;
         }
+    }
+
+    #[test]
+    fn note_times_span_full_song_duration() {
+        // The song has 102 measures at 110 BPM.  At 4/4 time, total duration is
+        // approximately 102 × 4 × (60/110) ≈ 222 seconds.  Assert the last note
+        // is well past 60 s to catch the within-measure-only timing regression.
+        let song = load_test_song();
+        let guitar_track = song
+            .tracks
+            .iter()
+            .find(|t| !t.percussion_track)
+            .expect("No guitar track found");
+        let bpm = song.tempo.max(1) as f64;
+        let quarter_secs = 60.0 / bpm;
+
+        let mut max_time_sec: f64 = 0.0;
+        let mut measure_tick_offset: i64 = 0;
+        for measure in &guitar_track.measures {
+            let header = &song.measure_headers[measure.header_index];
+            for voice in &measure.voices {
+                for beat in &voice.beats {
+                    if let Some(start_ticks) = beat.start {
+                        let abs_ticks = measure_tick_offset + start_ticks - DURATION_QUARTER_TIME as i64;
+                        let time_sec = abs_ticks as f64
+                            / DURATION_QUARTER_TIME as f64
+                            * quarter_secs;
+                        if time_sec > max_time_sec {
+                            max_time_sec = time_sec;
+                        }
+                    }
+                }
+            }
+            let beat_ticks = duration_ticks(&header.time_signature.denominator) as i64;
+            measure_tick_offset += header.time_signature.numerator as i64 * beat_ticks;
+        }
+        assert!(
+            max_time_sec > 60.0,
+            "Last note time {:.1}s is unexpectedly short — \
+             timing regression: notes should span the full song duration (~220 s), \
+             not just the first measure",
+            max_time_sec
+        );
     }
 
     #[test]

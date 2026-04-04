@@ -17,6 +17,7 @@
 use godot::prelude::*;
 use scorelib::model::{
     enums::NoteType,
+    headers::MeasureHeader,
     key_signature::{Duration, DURATION_QUARTER_TIME},
     song::Song,
 };
@@ -116,20 +117,33 @@ impl GpParser {
         };
         let num_strings = track.strings.len() as i8;
 
+        // beat.start is always within-measure: the first beat of every measure
+        // resets to DURATION_QUARTER_TIME (960).  To obtain the absolute tick
+        // position in the song we track a running measure offset and add
+        // (beat.start - DURATION_QUARTER_TIME) to it.
+        let mut measure_tick_offset: i64 = 0;
+
         for measure in &track.measures {
+            let header = &song.measure_headers[measure.header_index];
+
             let voice = match measure.voices.first() {
                 Some(v) => v,
-                None    => continue,
+                None    => {
+                    measure_tick_offset += Self::measure_duration_ticks(header);
+                    continue;
+                }
             };
+
             for beat in &voice.beats {
                 let start_ticks = match beat.start {
                     Some(s) => s,
                     None    => continue,
                 };
-                // Convert absolute ticks → seconds.
-                // First beat starts at DURATION_QUARTER_TIME (960), so subtract
-                // that offset so the first note gets time = 0.0.
-                let time_sec: f64 = (start_ticks - DURATION_QUARTER_TIME) as f64
+                // Absolute tick = accumulated measure offset + within-measure offset.
+                // beat.start counts from DURATION_QUARTER_TIME at the first beat of
+                // every measure, so we subtract that base to get 0-relative offsets.
+                let abs_ticks = measure_tick_offset + start_ticks - DURATION_QUARTER_TIME as i64;
+                let time_sec: f64 = abs_ticks as f64
                     / DURATION_QUARTER_TIME as f64
                     * quarter_secs;
 
@@ -154,8 +168,20 @@ impl GpParser {
                     out.push(&nd);
                 }
             }
+
+            measure_tick_offset += Self::measure_duration_ticks(header);
         }
         out
+    }
+
+    /// Compute a measure's total duration in ticks from its time signature.
+    ///
+    /// For 4/4 at DURATION_QUARTER_TIME = 960:  4 × 960 = 3840 ticks.
+    /// For 3/4:                                  3 × 960 = 2880 ticks.
+    /// For 6/8:                               6 × 480   = 2880 ticks.
+    fn measure_duration_ticks(header: &MeasureHeader) -> i64 {
+        let beat_ticks = Self::duration_ticks(&header.time_signature.denominator) as i64;
+        header.time_signature.numerator as i64 * beat_ticks
     }
 
     /// Replicate `Duration::time()` (which is `pub(crate)` in scorelib).

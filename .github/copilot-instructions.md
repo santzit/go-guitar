@@ -34,7 +34,7 @@ go-guitar/
 - **GDExtension at runtime**: GDScript never references `GpParser` directly at parse time. Always use `ClassDB.instantiate("GpParser")` so the script loads even when the extension is not compiled.
 - **Note timing**: `beat.start` in scorelib is a *within-measure* tick offset (resets to `DURATION_QUARTER_TIME = 960` each measure). Absolute song time = `measure_tick_offset + (beat.start − 960)`, where `measure_tick_offset` is accumulated across measures using `MeasureHeader.time_signature`.
 - **String mapping**: GP string numbering is 1-indexed (1 = high-e). Game string numbering is 0-indexed (0 = low-E). Conversion: `game_str = num_strings - gp_string`.
-- **Fretboard XY layout**: Frets are columns (1–22, left→right), strings are rows (0=low-E top → 5=high-e bottom). Finger indicator dot position: X = `label_w + (fret − 0.5) / 22 × play_w`, Y = `fb_top + (string + 0.5) × row_h`.
+- **Fretboard XY layout**: Frets are columns (1–22, left→right), strings are rows (0=low-E top → 5=high-e bottom). Finger indicator dot position: X = `label_w + (fret − 0.5) / NUM_DISPLAY_FRETS × play_w`, Y = `fb_top + (string + 0.5) × row_h`.
 
 ## Build Commands
 
@@ -67,7 +67,7 @@ Key regression test: `note_times_span_full_song_duration` asserts last note time
 
 ## Screenshots
 
-After visual changes, generate 5 screenshots at different song positions using Godot's `--export-debug` or a headless rendering script and commit them to `docs/screenshots/`. Then upload and share in the PR reply so the reviewer can see the impact.
+After visual changes, generate 5 screenshots at different song positions using a headless rendering script and commit them to `docs/screenshots/`. Then upload and share in the PR reply so the reviewer can see the impact.
 
 To take screenshots programmatically (requires Godot in PATH):
 

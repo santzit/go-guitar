@@ -49,7 +49,13 @@ func _idle(delta: float) -> bool:
 	return false  # don't quit
 
 func _do_capture() -> void:
-	var img := get_root().get_viewport().get_texture().get_image()
+	var tex := get_root().get_viewport().get_texture()
+	if tex == null:
+		printerr("Failed to get viewport texture for %s" % _labels[_idx])
+		_idx += 1
+		_set_time_and_capture()
+		return
+	var img := tex.get_image()
 	var path := "%s/%s.png" % [OUT_DIR, _labels[_idx]]
 	var err := img.save_png(ProjectSettings.globalize_path(path))
 	if err == OK:

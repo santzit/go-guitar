@@ -437,3 +437,31 @@ mod integration {
         }
     }
 }
+
+#[test]
+fn print_string_distribution_standalone() {
+    use std::collections::HashMap;
+    let path = dlc_gp5_path();
+    let data = std::fs::read(&path).unwrap();
+    let mut song = scorelib::model::song::Song::default();
+    song.read_gp5(&data).unwrap();
+    let guitar_track = song.tracks.iter().find(|t| !t.percussion_track).expect("No guitar track");
+    let num_strings = guitar_track.strings.len() as i8;
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for measure in &guitar_track.measures {
+        for voice in &measure.voices {
+            for beat in &voice.beats {
+                for note in &beat.notes {
+                    if matches!(note.kind, NoteType::Normal) {
+                        let gs = ((num_strings - note.string).max(0) as i64).min(5);
+                        *counts.entry(gs).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+    }
+    let mut v: Vec<_> = counts.iter().collect();
+    v.sort_by_key(|&(k,_)| k);
+    println!("\nString distribution (num_strings={}):", num_strings);
+    for (s, c) in &v { println!("  game_str {}: {} notes", s, c); }
+}

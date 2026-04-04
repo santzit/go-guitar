@@ -219,7 +219,9 @@ func _note_y(beat_time: float) -> float:
 ## Returns an Array[float] of size NUM_STRINGS: the nearest time-to-hit (s) for
 ## an active note on each string within the look-ahead window, INF when none.
 func _build_nearest_times() -> Array:
-	var nearest: Array = [INF, INF, INF, INF, INF, INF]
+	var nearest: Array = []
+	nearest.resize(NUM_STRINGS)
+	nearest.fill(INF)
 	for note in notes:
 		if note.get("hit", false) or note.get("missed", false):
 			continue
@@ -292,11 +294,11 @@ func _draw_hit_zone(nearest: Array) -> void:
 		var col: Color   = STRING_COLORS[i]
 		var flash: float = string_flash[i]
 
-		# Proximity glow: ramps from 0 at 2 s out to full at the hit line.
+		# Proximity glow: ramps from 0 at FINGER_PREVIEW seconds out to full at the hit line.
 		var tth: float  = nearest[i]
 		var prox: float = 0.0
 		if tth < INF:
-			prox = clamp(1.0 - tth / 2.0, 0.0, 1.0)
+			prox = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
 
 		# Outer glow (brightens on key press AND as note approaches)
 		draw_rect(

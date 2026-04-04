@@ -41,7 +41,7 @@ func _set_time_and_capture() -> void:
 	_scene_node.queue_redraw()
 	_frame_wait = 2  # capture after 2 idle frames
 
-func _idle(delta: float) -> bool:
+func _process(delta: float) -> bool:
 	if _frame_wait > 0:
 		_frame_wait -= 1
 		if _frame_wait == 0:

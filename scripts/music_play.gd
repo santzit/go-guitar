@@ -30,10 +30,13 @@ const START_DELAY: float     = 3.0    # lead-in before first note
 const FINGER_PREVIEW: float  = 2.0    # seconds ahead where fretboard finger guides appear
 
 ## ── Fretboard (bottom strip) ─────────────────────────────────────────────────
-const FRETBOARD_TOP: float    = 580.0
-const FRETBOARD_HEIGHT: float = 140.0
+const FRETBOARD_TOP: float    = 575.0
+const FRETBOARD_HEIGHT: float = 145.0
 const NUM_DISPLAY_FRETS: int  = 22
-const MARKER_FRETS: Array     = [3, 5, 7, 9, 12, 15, 17, 19, 21]
+## Frets with a single position marker dot
+const MARKER_FRETS: Array     = [1, 3, 5, 7, 9, 12, 15, 17, 19, 21]
+## Frets with double position marker dots (octave/landmark frets)
+const DOUBLE_DOT_FRETS: Array = [3, 12]
 
 ## ── Runtime state ────────────────────────────────────────────────────────────
 var song_data: Dictionary = {}
@@ -353,47 +356,63 @@ func _draw_notes() -> void:
 func _draw_fretboard(nearest: Array) -> void:
 	var fb_top: float  = FRETBOARD_TOP
 	var fb_w: float    = 1280.0
-	var str_sp: float  = FRETBOARD_HEIGHT / (NUM_STRINGS + 1)
+	# Reserve left edge for string-name labels and right margin
+	var label_w: float = 22.0
+	var play_w: float  = fb_w - label_w
+	# Each string occupies an equal row; leave a top/bottom margin
+	var row_h: float   = FRETBOARD_HEIGHT / float(NUM_STRINGS)
 	var font: Font     = ThemeDB.fallback_font
 
-	# Fretboard body
-	draw_rect(Rect2(0, fb_top, fb_w, FRETBOARD_HEIGHT), Color(0.32, 0.22, 0.09))
-	draw_rect(Rect2(0, fb_top + 4, fb_w, FRETBOARD_HEIGHT - 8), Color(0.25, 0.16, 0.07))
+	# ── Fretboard body ──────────────────────────────────────────────────────
+	draw_rect(Rect2(0, fb_top, fb_w, FRETBOARD_HEIGHT), Color(0.28, 0.18, 0.07))
+	# Alternating row tints so each string lane is visually distinct
+	for i in range(NUM_STRINGS):
+		var ry: float = fb_top + i * row_h
+		var tint: Color = Color(0.32, 0.22, 0.09, 0.8) if (i % 2 == 0) else Color(0.22, 0.14, 0.05, 0.8)
+		draw_rect(Rect2(label_w, ry, play_w, row_h), tint)
 
-	# Fret lines + labels.
-	# The fret label for slot N (where you press for fret N) is centered in the slot,
-	# at the same X as the finger dot: (N - 0.5) / NUM_DISPLAY_FRETS * fb_w.
-	# This ensures label and dot are always co-located (fret 2 label ↔ fret 2 dot, etc.).
+	# ── Fret wire lines + slot labels ───────────────────────────────────────
 	for f in range(NUM_DISPLAY_FRETS + 1):
-		var fx: float        = float(f) / NUM_DISPLAY_FRETS * fb_w
+		var fx: float        = label_w + float(f) / NUM_DISPLAY_FRETS * play_w
 		var is_nut: bool     = (f == 0)
-		var thickness: float = 3.5 if is_nut else 1.2
-		var col: Color       = Color(0.88, 0.88, 0.72) if is_nut else Color(0.60, 0.60, 0.60)
+		var thickness: float = 3.5 if is_nut else 1.0
+		var col: Color       = Color(0.90, 0.88, 0.70) if is_nut else Color(0.55, 0.55, 0.50)
 		draw_line(Vector2(fx, fb_top), Vector2(fx, fb_top + FRETBOARD_HEIGHT), col, thickness)
 		if f > 0:
-			# Slot-center X: midpoint between wire f-1 and wire f
-			var slot_cx: float = (float(f) - 0.5) / NUM_DISPLAY_FRETS * fb_w
+			# Fret number label centered in each slot (between wire f-1 and wire f)
+			var slot_cx: float = label_w + (float(f) - 0.5) / NUM_DISPLAY_FRETS * play_w
 			draw_string(
 				font,
-				Vector2(slot_cx, fb_top + FRETBOARD_HEIGHT - 3),
+				Vector2(slot_cx, fb_top + FRETBOARD_HEIGHT - 2),
 				str(f),
 				HORIZONTAL_ALIGNMENT_CENTER,
-				-1, 10,
-				Color(0.75, 0.65, 0.30)
+				-1, 9,
+				Color(0.70, 0.60, 0.28)
 			)
 
-	# Position dots
+	# ── Position marker dots ─────────────────────────────────────────────────
+	# Dots sit between the middle string rows (visually between rows 2 and 3).
 	for mf in MARKER_FRETS:
 		if mf > NUM_DISPLAY_FRETS:
 			continue
-		var fx: float    = (float(mf) - 0.5) / NUM_DISPLAY_FRETS * fb_w
-		var my: float    = fb_top + FRETBOARD_HEIGHT * 0.5
-		var r: float     = 6.0 if mf == 12 else 4.5
-		draw_circle(Vector2(fx, my), r, Color(0.45, 0.35, 0.18))
+		var slot_cx: float = label_w + (float(mf) - 0.5) / NUM_DISPLAY_FRETS * play_w
+		var dot_col: Color = Color(0.50, 0.40, 0.20)
+		if mf in DOUBLE_DOT_FRETS:
+			# Double dot: placed at 1/3 and 2/3 of the fretboard height
+			var y1: float = fb_top + FRETBOARD_HEIGHT * 0.28
+			var y2: float = fb_top + FRETBOARD_HEIGHT * 0.72
+			draw_circle(Vector2(slot_cx, y1), 4.5, dot_col)
+			draw_circle(Vector2(slot_cx, y2), 4.5, dot_col)
+		else:
+			# Single dot: centred between middle two strings
+			var my: float = fb_top + FRETBOARD_HEIGHT * 0.50
+			draw_circle(Vector2(slot_cx, my), 4.0, dot_col)
 
-	# Guitar strings — brighten for strings that have an incoming note.
+	# ── Guitar strings (horizontal lines) ───────────────────────────────────
+	# Each string is drawn through the vertical centre of its row.
+	# Row i → centre Y = fb_top + (i + 0.5) * row_h
 	for i in range(NUM_STRINGS):
-		var sy: float        = fb_top + (i + 1) * str_sp
+		var sy: float        = fb_top + (i + 0.5) * row_h
 		var thickness: float = 3.8 - i * 0.45
 		var tth: float       = nearest[i]
 		var col: Color
@@ -401,25 +420,27 @@ func _draw_fretboard(nearest: Array) -> void:
 			var t: float = clamp(1.0 - tth / LOOK_AHEAD, 0.0, 1.0)
 			col = STRING_COLORS[i].lightened(t * 0.45)
 		else:
-			col = STRING_COLORS[i].darkened(0.30)
-		draw_line(Vector2(0, sy), Vector2(fb_w, sy), col, thickness)
+			col = STRING_COLORS[i].darkened(0.35)
+		draw_line(Vector2(label_w, sy), Vector2(fb_w, sy), col, thickness)
 
-	# String-name labels on the left edge (E A D G B e)
+	# ── String-name labels on the left edge (E A D G B e) ───────────────────
 	for i in range(NUM_STRINGS):
-		var sy: float  = fb_top + (i + 1) * str_sp
-		var col: Color = STRING_COLORS[i] if nearest[i] < INF else STRING_COLORS[i].darkened(0.35)
+		var sy: float  = fb_top + (i + 0.5) * row_h
+		var col: Color = STRING_COLORS[i] if nearest[i] < INF else STRING_COLORS[i].darkened(0.40)
 		draw_string(
 			font,
-			Vector2(4, sy + 5),
+			Vector2(2, sy + 5),
 			STRING_NAMES[i],
 			HORIZONTAL_ALIGNMENT_LEFT,
 			-1, 13,
 			col
 		)
 
-	# Finger-position indicators — shown for notes within FINGER_PREVIEW seconds.
-	# Open string (fret=0): glowing highlight on the nut end of the string.
-	# Fretted note (fret>0): dot grows in size/opacity as the note approaches.
+	# ── Finger-position indicators ───────────────────────────────────────────
+	# Shown for notes within FINGER_PREVIEW seconds of the hit time.
+	# XY coordinates: X = slot centre for the fret, Y = row centre for the string.
+	# Max dot radius is capped to half the row height so dots never bleed across rows.
+	var max_r: float = row_h * 0.42  # fits inside each string row
 	for note in notes:
 		if note.get("hit", false) or note.get("missed", false):
 			continue
@@ -427,37 +448,36 @@ func _draw_fretboard(nearest: Array) -> void:
 		if tth < -HIT_WINDOW or tth > FINGER_PREVIEW:
 			continue
 
-		var si: int   = int(note["string"])
-		var fret: int = int(note.get("fret", 0))
+		var si: int     = int(note["string"])
+		var fret: int   = int(note.get("fret", 0))
 		var prox: float = clamp(1.0 - tth / FINGER_PREVIEW, 0.0, 1.0)
 		var col: Color  = STRING_COLORS[si]
-		var sy: float   = fb_top + (si + 1) * str_sp
+		# Row-centre Y for this string
+		var sy: float   = fb_top + (si + 0.5) * row_h
 
 		if fret == 0:
-			# Open string: no specific fret to press — fret range check does not apply.
-			# Glow the full string to signal the player to play it open.
-			var lw: float = lerp(1.5, 4.0, prox)
-			draw_line(Vector2(0, sy), Vector2(fb_w, sy),
-				Color(col.r, col.g, col.b, 0.25 + prox * 0.45), lw + 4.0)
-			draw_line(Vector2(0, sy), Vector2(fb_w, sy),
-				Color(col.r, col.g, col.b, 0.70 + prox * 0.30), lw)
+			# Open string: glow the full string to signal play-open
+			var lw: float = lerp(1.5, minf(4.0, max_r), prox)
+			draw_line(Vector2(label_w, sy), Vector2(fb_w, sy),
+				Color(col.r, col.g, col.b, 0.20 + prox * 0.45), lw + 3.0)
+			draw_line(Vector2(label_w, sy), Vector2(fb_w, sy),
+				Color(col.r, col.g, col.b, 0.65 + prox * 0.35), lw)
 		else:
-			# Fretted note: finger dot at the exact fret/string XY coordinate.
-			# X = slot center for fret N  →  (N - 0.5) / NUM_DISPLAY_FRETS * fb_w
-			# Y = string row sy (already computed above)
-			# This places the indicator at the intersection of the correct string
-			# and the correct fret slot — like XY coordinates on the fretboard.
+			# Fretted note: dot at the exact fret × string intersection.
+			# X = slot centre: (fret - 0.5) / NUM_DISPLAY_FRETS * play_w + label_w
+			# Y = string row centre: fb_top + (string + 0.5) * row_h
 			if fret > NUM_DISPLAY_FRETS:
 				continue
-			var fx: float     = (float(fret) - 0.5) / NUM_DISPLAY_FRETS * fb_w
-			var halo_r: float = lerp(8.0, 18.0, prox)
+			var fx: float   = label_w + (float(fret) - 0.5) / NUM_DISPLAY_FRETS * play_w
+			var r: float    = lerp(max_r * 0.45, max_r, prox)
 			# Outer halo
-			draw_circle(Vector2(fx, sy), halo_r + 4.0,
-				Color(col.r, col.g, col.b, 0.18 + prox * 0.22))
+			draw_circle(Vector2(fx, sy), r + 2.0,
+				Color(col.r, col.g, col.b, 0.20 + prox * 0.25))
 			# Filled dot
-			draw_circle(Vector2(fx, sy), halo_r,
-				Color(col.r, col.g, col.b, 0.60 + prox * 0.40))
-			# Fret number — always drawn inside the dot
-			var fs: int = clamp(int(lerp(10.0, 14.0, prox)), 10, 14)
-			draw_string(font, Vector2(fx, sy + fs * 0.40), str(fret),
-				HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))
+			draw_circle(Vector2(fx, sy), r,
+				Color(col.r, col.g, col.b, 0.65 + prox * 0.35))
+			# Fret number inside the dot (only when large enough)
+			if r >= 6.0:
+				var fs: int = clamp(int(r * 1.1), 8, 12)
+				draw_string(font, Vector2(fx, sy + fs * 0.38), str(fret),
+					HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))

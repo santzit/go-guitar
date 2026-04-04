@@ -360,20 +360,25 @@ func _draw_fretboard(nearest: Array) -> void:
 	draw_rect(Rect2(0, fb_top, fb_w, FRETBOARD_HEIGHT), Color(0.32, 0.22, 0.09))
 	draw_rect(Rect2(0, fb_top + 4, fb_w, FRETBOARD_HEIGHT - 8), Color(0.25, 0.16, 0.07))
 
-	# Fret lines + labels
+	# Fret lines + labels.
+	# The fret label for slot N (where you press for fret N) is centered in the slot,
+	# at the same X as the finger dot: (N - 0.5) / NUM_DISPLAY_FRETS * fb_w.
+	# This ensures label and dot are always co-located (fret 2 label ↔ fret 2 dot, etc.).
 	for f in range(NUM_DISPLAY_FRETS + 1):
 		var fx: float        = float(f) / NUM_DISPLAY_FRETS * fb_w
 		var is_nut: bool     = (f == 0)
 		var thickness: float = 3.5 if is_nut else 1.2
 		var col: Color       = Color(0.88, 0.88, 0.72) if is_nut else Color(0.60, 0.60, 0.60)
 		draw_line(Vector2(fx, fb_top), Vector2(fx, fb_top + FRETBOARD_HEIGHT), col, thickness)
-		if f > 0 and f % 2 == 1:
+		if f > 0:
+			# Slot-center X: midpoint between wire f-1 and wire f
+			var slot_cx: float = (float(f) - 0.5) / NUM_DISPLAY_FRETS * fb_w
 			draw_string(
 				font,
-				Vector2(fx - 5, fb_top + FRETBOARD_HEIGHT - 3),
+				Vector2(slot_cx, fb_top + FRETBOARD_HEIGHT - 3),
 				str(f),
-				HORIZONTAL_ALIGNMENT_LEFT,
-				-1, 13,
+				HORIZONTAL_ALIGNMENT_CENTER,
+				-1, 10,
 				Color(0.75, 0.65, 0.30)
 			)
 
@@ -437,18 +442,22 @@ func _draw_fretboard(nearest: Array) -> void:
 			draw_line(Vector2(0, sy), Vector2(fb_w, sy),
 				Color(col.r, col.g, col.b, 0.70 + prox * 0.30), lw)
 		else:
-			# Fretted note: finger dot at the specific fret position
+			# Fretted note: finger dot at the exact fret/string XY coordinate.
+			# X = slot center for fret N  →  (N - 0.5) / NUM_DISPLAY_FRETS * fb_w
+			# Y = string row sy (already computed above)
+			# This places the indicator at the intersection of the correct string
+			# and the correct fret slot — like XY coordinates on the fretboard.
 			if fret > NUM_DISPLAY_FRETS:
 				continue
 			var fx: float     = (float(fret) - 0.5) / NUM_DISPLAY_FRETS * fb_w
-			var halo_r: float = lerp(5.0, 14.0, prox)
+			var halo_r: float = lerp(8.0, 18.0, prox)
 			# Outer halo
-			draw_circle(Vector2(fx, sy), halo_r + 3.0,
-				Color(col.r, col.g, col.b, 0.15 + prox * 0.20))
+			draw_circle(Vector2(fx, sy), halo_r + 4.0,
+				Color(col.r, col.g, col.b, 0.18 + prox * 0.22))
 			# Filled dot
 			draw_circle(Vector2(fx, sy), halo_r,
-				Color(col.r, col.g, col.b, 0.55 + prox * 0.45))
-			# Fret number
-			var fs: int = clamp(int(lerp(9.0, 12.0, prox)), 9, 12)
-			draw_string(font, Vector2(fx, sy + fs * 0.45), str(fret),
+				Color(col.r, col.g, col.b, 0.60 + prox * 0.40))
+			# Fret number — always drawn inside the dot
+			var fs: int = clamp(int(lerp(10.0, 14.0, prox)), 10, 14)
+			draw_string(font, Vector2(fx, sy + fs * 0.40), str(fret),
 				HORIZONTAL_ALIGNMENT_CENTER, -1, fs, Color(0.05, 0.05, 0.05))

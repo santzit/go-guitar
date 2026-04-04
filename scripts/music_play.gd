@@ -429,7 +429,8 @@ func _draw_fretboard(nearest: Array) -> void:
 		var sy: float   = fb_top + (si + 1) * str_sp
 
 		if fret == 0:
-			# Open string: bright glow along the full string (nut to end)
+			# Open string: no specific fret to press — fret range check does not apply.
+			# Glow the full string to signal the player to play it open.
 			var lw: float = lerp(1.5, 4.0, prox)
 			draw_line(Vector2(0, sy), Vector2(fb_w, sy),
 				Color(col.r, col.g, col.b, 0.25 + prox * 0.45), lw + 4.0)

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
+  <rect width="128" height="128" rx="16" fill="#0d0d1a"/>
+  <rect x="54" y="8" width="20" height="60" rx="4" fill="#8B6914"/>
+  <rect x="44" y="55" width="40" height="55" rx="8" fill="#A0522D"/>
+  <ellipse cx="64" cy="82" rx="14" ry="14" fill="#0d0d1a"/>
+  <line x1="24" y1="60" x2="104" y2="60" stroke="#e8e8e8" stroke-width="1.5"/>
+  <line x1="24" y1="66" x2="104" y2="66" stroke="#d4b800" stroke-width="2"/>
+  <line x1="24" y1="73" x2="104" y2="73" stroke="#4488ff" stroke-width="2"/>
+  <line x1="24" y1="80" x2="104" y2="80" stroke="#ff8800" stroke-width="2.5"/>
+  <line x1="24" y1="87" x2="104" y2="87" stroke="#44cc44" stroke-width="3"/>
+  <line x1="24" y1="95" x2="104" y2="95" stroke="#aa44ff" stroke-width="3.5"/>
+  <circle cx="52" cy="14" r="5" fill="#333"/>
+  <circle cx="76" cy="14" r="5" fill="#333"/>
+  <circle cx="52" cy="28" r="5" fill="#333"/>
+  <circle cx="76" cy="28" r="5" fill="#333"/>
+  <circle cx="52" cy="42" r="5" fill="#333"/>
+  <circle cx="76" cy="42" r="5" fill="#333"/>
+  <rect x="44" y="56" width="40" height="6" rx="2" fill="#e8e8e8"/>
+</svg>

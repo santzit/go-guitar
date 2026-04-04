@@ -14,3 +14,11 @@ export_credentials.cfg
 .mono/
 data_*/
 mono_crash.*.json
+
+# GDExtension compiled libraries (build locally with: cd gp_extension && cargo build --release)
+addons/gp_extension/bin/*.so
+addons/gp_extension/bin/*.dll
+addons/gp_extension/bin/*.dylib
+
+# Rust build artefacts
+gp_extension/target/

@@ -1,7 +1,7 @@
 extends Control
 
 const MUSIC_PLAY_SCENE: String = "res://scenes/music_play.tscn"
-const SUPPORTED_EXTENSIONS: Array = [".json", ".gp", ".gp3", ".gp4", ".gp5"]
+const SUPPORTED_EXTENSIONS: Array = [".gp", ".gp3", ".gp4", ".gp5"]
 
 ## Paths to scan for song files.  res:// covers bundled DLC, user:// covers
 ## songs added by the player after installation.
@@ -33,7 +33,7 @@ func _load_song_list() -> void:
 
 	if not found_any:
 		var lbl := Label.new()
-		lbl.text = "No songs found.\nAdd .json or .gp files to the DLC/ folder."
+		lbl.text = "No songs found.\nAdd .gp / .gp3 / .gp4 / .gp5 files to the DLC/ folder."
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.add_theme_font_size_override("font_size", 20)
 		container.add_child(lbl)

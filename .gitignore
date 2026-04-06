@@ -14,3 +14,10 @@ export_credentials.cfg
 .mono/
 data_*/
 mono_crash.*.json
+
+# Rocksmith2014.NET library source (downloaded by `make setup`, not committed)
+tools/psarc_extractor/lib/
+
+# .NET build artifacts
+tools/psarc_extractor/PsarcExtractor/bin/
+tools/psarc_extractor/PsarcExtractor/obj/

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>psarc_extractor</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Rocksmith2014.NET library fetched to ../lib/ by `make setup` -->
+    <ProjectReference Include="..\lib\Rocksmith2014.PSARC\Rocksmith2014.PSARC.fsproj" />
+    <ProjectReference Include="..\lib\Rocksmith2014.SNG\Rocksmith2014.SNG.fsproj" />
+  </ItemGroup>
+
+</Project>

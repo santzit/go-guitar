@@ -32,8 +32,8 @@ const STRING_COLORS: Array[Color] = [
 
 const HIT_COLOR   := Color(1.0, 1.0, 1.0, 0.95)
 const HW_BG       := Color(0.02, 0.03, 0.08, 1.0)   # very dark navy
-const DIVIDER_COL := Color(0.15, 0.20, 0.35, 0.45)  # subtle lane separator
-const FRET_COL    := Color(0.20, 0.28, 0.45, 0.50)  # fret grid lines
+const LANE_COLOR  := Color(0.35, 0.70, 0.95, 0.75)  # light blue — all highway lines
+const FRET_COL    := Color(0.35, 0.70, 0.95, 0.40)  # light blue fret grid lines
 const FB_BG_COLOR := Color(0.07, 0.05, 0.03, 1.0)
 const FB_FT_COLOR := Color(0.28, 0.25, 0.18, 1.0)
 const DOT_FRETS    := [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]
@@ -82,23 +82,25 @@ func _load_demo() -> void:
 	_title  = "Demo Song"
 	_artist = "go-guitar"
 	_song_length = 30.0
-	var t := 0.0
-	# Each string: SNG si=0=High e (rightmost), si=5=Low E (leftmost)
-	# Notes staggered so all 6 lanes are visible
+	# Each string gets its own independent note stream every 0.5 s, offset by
+	# 0.1 s per string so notes are always spread across all lanes at once.
+	# si=0=High e (rightmost), si=5=Low E (leftmost)
 	var fret_map: Array[Array] = [
-		[12, 14, 15, 14, 12, 14],  # si=0  High e
-		[0, 1, 3, 1, 0, 3],        # si=1  B
-		[0, 2, 4, 2, 0, 2],        # si=2  G
-		[0, 2, 3, 5, 3, 2],        # si=3  D
-		[0, 2, 4, 5, 4, 2],        # si=4  A
+		[12, 14, 15, 12, 17, 15],  # si=0  High e
+		[0, 1, 3, 5, 3, 1],        # si=1  B
+		[0, 2, 4, 5, 4, 2],        # si=2  G
+		[2, 3, 5, 7, 5, 3],        # si=3  D
+		[2, 4, 5, 7, 5, 4],        # si=4  A
 		[0, 3, 5, 7, 5, 3],        # si=5  Low E (leftmost)
 	]
-	for beat in range(24):
-		for si in range(NUM_STRINGS):
+	var interval := 0.5   # notes per string every 0.5 s
+	var offset   := 0.09  # stagger each string by 0.09 s
+	for si in range(NUM_STRINGS):
+		var t_start := float(si) * offset
+		for beat in range(61):
 			var fi: int = fret_map[si][beat % fret_map[si].size()]
-			_notes.append({"time": t, "string_index": si, "fret": fi, "sustain": 0.0})
-			t += 0.035
-		t += 0.065
+			_notes.append({"time": t_start + beat * interval, "string_index": si,
+				"fret": fi, "sustain": 0.0})
 
 func _process(delta: float) -> void:
 	if _audio_player and _audio_player.playing:
@@ -114,40 +116,36 @@ func _draw() -> void:
 	_draw_hud()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Highway: dark background, colored string lines, fret grid, hit zone
+# Highway: dark background, uniform light-blue lane lines, fret grid, hit zone
 # ─────────────────────────────────────────────────────────────────────────────
 func _draw_highway() -> void:
 	# --- Background ---
 	draw_rect(Rect2(0, 0, 1280, HIT_Y + 2.0), HW_BG)
-	
-	# --- Subtle lane-divider lines (between strings, not colored) ---
-	for i in range(NUM_STRINGS + 1):
-		var t_ := float(i) / float(NUM_STRINGS)
-		var bx := lerpf(LANE_X[0] - 28.0, LANE_X[NUM_STRINGS - 1] + 28.0, t_)
-		draw_line(Vector2(VP.x, VP.y), Vector2(bx, HIT_Y), DIVIDER_COL, 0.8)
-	
-	# --- Colored string lines: each string has its own color, converge at VP ---
+
+	# --- Lane lines: uniform light blue, one per string + 2 edge borders ---
+	# All lines connect from vanishing point (VP) down to the string position
+	# at the hit zone (HIT_Y) — no per-string colour.
+	var edge_l := LANE_X[0] - 30.0
+	var edge_r := LANE_X[NUM_STRINGS - 1] + 30.0
+	draw_line(Vector2(VP.x, VP.y), Vector2(edge_l, HIT_Y), LANE_COLOR, 2.0)
+	draw_line(Vector2(VP.x, VP.y), Vector2(edge_r, HIT_Y), LANE_COLOR, 2.0)
 	for vis in range(NUM_STRINGS):
-		var lx := LANE_X[vis]
-		var col := STRING_COLORS[vis]
-		# Bright at hit zone, fade toward horizon
-		draw_line(Vector2(VP.x, VP.y), Vector2(lx, HIT_Y),
-			col.darkened(0.15), 1.8)
-	
+		draw_line(Vector2(VP.x, VP.y), Vector2(LANE_X[vis], HIT_Y), LANE_COLOR, 1.2)
+
 	# --- Fret-depth grid: horizontal lines at regular depth steps ---
 	for step in range(1, 12):
 		var depth := float(step) / 11.0
 		var y := lerpf(HIT_Y, VP.y, depth)
-		var alpha := lerpf(0.55, 0.10, depth)
-		var left_x  := lerpf(LANE_X[0] - 28.0, VP.x, depth)
-		var right_x := lerpf(LANE_X[NUM_STRINGS - 1] + 28.0, VP.x, depth)
+		var alpha := lerpf(0.45, 0.07, depth)
+		var left_x  := lerpf(edge_l, VP.x, depth)
+		var right_x := lerpf(edge_r, VP.x, depth)
 		draw_line(Vector2(left_x, y), Vector2(right_x, y),
 			Color(FRET_COL.r, FRET_COL.g, FRET_COL.b, alpha), 0.8)
-	
+
 	# --- Hit zone (bright white line) ---
 	draw_line(Vector2(0, HIT_Y), Vector2(1280, HIT_Y), HIT_COLOR, 3.5)
-	
-	# --- String indicators at hit zone (colored circles per lane) ---
+
+	# --- String indicators at hit zone (colored, so player knows which string) ---
 	for vis in range(NUM_STRINGS):
 		var lx := LANE_X[vis]
 		var col := STRING_COLORS[vis]

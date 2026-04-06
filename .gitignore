@@ -21,3 +21,15 @@ tools/psarc_extractor/lib/
 # .NET build artifacts
 tools/psarc_extractor/PsarcExtractor/bin/
 tools/psarc_extractor/PsarcExtractor/obj/
+gp_extension/target/
+
+# GDExtension compiled binary (built by `make ext`)
+addons/gp_extension/bin/*.so
+addons/gp_extension/bin/*.dylib
+addons/gp_extension/bin/*.dll
+
+# Godot cache
+.godot/imported/
+
+# vendor sub-submodule build artifacts
+vendor/guitar-pitch-detection/target/

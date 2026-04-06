@@ -59,11 +59,11 @@ fn aes_ctr_decrypt(data: &[u8], iv: &[u8; 16]) -> Vec<u8> {
 
 // ── little-endian helpers ─────────────────────────────────────────────────────
 
-fn le_u32(b: &[u8], o: usize) -> u32 {
+pub(crate) fn le_u32(b: &[u8], o: usize) -> u32 {
     u32::from_le_bytes([b[o], b[o+1], b[o+2], b[o+3]])
 }
 fn le_i32(b: &[u8], o: usize) -> i32 { le_u32(b, o) as i32 }
-fn le_f32(b: &[u8], o: usize) -> f32 {
+pub(crate) fn le_f32(b: &[u8], o: usize) -> f32 {
     f32::from_le_bytes([b[o], b[o+1], b[o+2], b[o+3]])
 }
 
@@ -116,13 +116,21 @@ fn skip_nld(b: &[u8], mut o: usize) -> usize {
 //  63  BendData count(i32)     4
 //  67  BendData[n] (12 bytes each)
 
+const NOTE_TIME_OFFSET:    usize = 12;
+const NOTE_STRING_OFFSET:  usize = 16;
+const NOTE_FRET_OFFSET:    usize = 17;
+const NOTE_SUSTAIN_OFFSET: usize = 55;
+const NOTE_BEND_CT_OFFSET: usize = 63;
+const NOTE_FIXED_SIZE:     usize = 67;
+const NOTE_BEND_STRIDE:    usize = 12;
+
 fn parse_note(b: &[u8], o: usize) -> (Note, usize) {
-    let time         = le_f32(b, o + 12);
-    let string_index = b[o + 16];
-    let fret         = b[o + 17];
-    let sustain      = le_f32(b, o + 55);
-    let bend_count   = le_u32(b, o + 63) as usize;
-    let next         = o + 67 + bend_count * 12;
+    let time         = le_f32(b, o + NOTE_TIME_OFFSET);
+    let string_index = b[o + NOTE_STRING_OFFSET];
+    let fret         = b[o + NOTE_FRET_OFFSET];
+    let sustain      = le_f32(b, o + NOTE_SUSTAIN_OFFSET);
+    let bend_count   = le_u32(b, o + NOTE_BEND_CT_OFFSET) as usize;
+    let next         = o + NOTE_FIXED_SIZE + bend_count * NOTE_BEND_STRIDE;
     (Note { time, string_index, fret, sustain }, next)
 }
 
@@ -150,7 +158,10 @@ fn parse_level(b: &[u8], o: usize) -> (Vec<Note>, usize) {
     let mut notes = Vec::with_capacity(note_count);
     for _ in 0..note_count {
         let (note, next) = parse_note(b, off);
-        notes.push(note);
+        // Only keep playable notes: string 0-5, fret 0-24, valid time
+        if note.string_index < 6 && note.fret <= 24 && note.time >= 0.0 {
+            notes.push(note);
+        }
         off = next;
     }
 
@@ -251,8 +262,8 @@ fn parse_plain(b: &[u8]) -> Result<SngData, String> {
     //   MaxScore(f64=8) + MaxNotesAndChords(f64=8) + MaxNotesAndChordsReal(f64=8)
     //   + PointsPerNote(f64=8) + FirstBeatLength(f32=4) + StartTime(f32=4)
     //   + CapoFretId(i8=1) + LastConversionDateTime[32] + Part(i16=2)
-    //   + SongLength(f32=4) …
-    // Offset of SongLength = 8+8+8+8+4+4+1+32+2 = 75
+    //   + SongLength(f32=4)
+    //   Offset of SongLength = 8+8+8+8+4+4+1+32+2 = 75
     let song_length = if meta_off + 79 <= b.len() {
         le_f32(b, meta_off + 75)
     } else {
@@ -260,4 +271,132 @@ fn parse_plain(b: &[u8]) -> Result<SngData, String> {
     };
 
     Ok(SngData { song_length, notes })
+}
+
+// ── unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::psarc;
+
+    // ── error cases ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_too_short_returns_err() {
+        assert!(parse(&[0u8; 8]).is_err());
+    }
+
+    #[test]
+    fn parse_wrong_magic_returns_err() {
+        let mut raw = vec![0u8; 24];
+        // magic = 0x01 (not 0x4A)
+        raw[0] = 0x01;
+        assert!(parse(&raw).is_err());
+    }
+
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn le_u32_reads_correctly() {
+        assert_eq!(le_u32(&[0x04, 0x03, 0x02, 0x01], 0), 0x01020304);
+    }
+
+    #[test]
+    fn le_f32_reads_zero() {
+        assert_eq!(le_f32(&[0, 0, 0, 0], 0), 0.0f32);
+    }
+
+    // ── real SNG data from PSARC ──────────────────────────────────────────────
+
+    fn cdlc_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("tests/cdlc")
+    }
+
+    fn first_sng_from_psarc() -> Option<Vec<u8>> {
+        let dir = cdlc_dir();
+        if !dir.exists() { return None; }
+        let psarc_path = std::fs::read_dir(&dir).ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().and_then(|e| e.to_str()) == Some("psarc"))?;
+        let raw = std::fs::read(&psarc_path).ok()?;
+        let archive = psarc::parse(&raw).ok()?;
+        let sng_entry = archive.entries.iter()
+            .find(|e| e.name.to_lowercase().ends_with(".sng"))?;
+        Some(sng_entry.data.clone())
+    }
+
+    #[test]
+    fn parse_sng_from_psarc_succeeds() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let result = parse(&data);
+        assert!(result.is_ok(), "SNG parse failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn sng_has_notes() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        assert!(!sng.notes.is_empty(), "expected notes in highest-difficulty level");
+    }
+
+    #[test]
+    fn sng_note_times_are_positive() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        for n in &sng.notes {
+            assert!(n.time >= 0.0, "negative note time: {}", n.time);
+        }
+    }
+
+    #[test]
+    fn sng_note_strings_in_range() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        for n in &sng.notes {
+            assert!(n.string_index < 6, "string_index {} out of range", n.string_index);
+        }
+    }
+
+    #[test]
+    fn sng_note_frets_in_range() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        for n in &sng.notes {
+            assert!(n.fret <= 24, "fret {} out of range", n.fret);
+        }
+    }
+
+    #[test]
+    fn sng_note_sustains_non_negative() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        for n in &sng.notes {
+            assert!(n.sustain >= 0.0, "negative sustain: {}", n.sustain);
+        }
+    }
+
+    #[test]
+    fn sng_song_length_is_reasonable() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        // Song should be between 30 s and 20 min
+        if sng.song_length > 0.0 {
+            assert!(sng.song_length > 30.0,  "song_length suspiciously short: {}s", sng.song_length);
+            assert!(sng.song_length < 1200.0, "song_length suspiciously long: {}s",  sng.song_length);
+        }
+    }
+
+    #[test]
+    fn sng_note_times_span_song_duration() {
+        let Some(data) = first_sng_from_psarc() else { return };
+        let sng = parse(&data).unwrap();
+        if sng.notes.is_empty() { return; }
+        let last = sng.notes.iter().map(|n| n.time).fold(f32::NEG_INFINITY, f32::max);
+        // At least 30 s of notes (rules out within-measure-only regression)
+        assert!(last > 30.0, "last note time only {}s — likely a timing regression", last);
+    }
 }

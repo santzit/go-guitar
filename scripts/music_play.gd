@@ -144,7 +144,7 @@ func _draw_notes() -> void:
 		else:
 			var w = max(20.0, note.duration_ticks / ticks_per_sec * SCROLL_SPEED * 0.3)
 			var rect = Rect2(x - w / 2, y - note_h / 2, w, note_h)
-			draw_rect(rect, color, true, 1.0, true)
+			draw_rect(rect, color)
 			draw_string(ThemeDB.fallback_font, Vector2(x - 6, y + 5), str(note.fret),
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
 

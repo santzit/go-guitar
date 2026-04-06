@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
-guitarpro = { git = "https://github.com/slundi/guitarpro" }
+scorelib = { git = "https://github.com/slundi/guitarpro", package = "lib" }
 
 [profile.release]
 opt-level = 3

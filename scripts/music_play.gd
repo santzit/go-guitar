@@ -2,26 +2,30 @@ class_name MusicPlay
 extends Node2D
 
 # ── constants ──────────────────────────────────────────────────────────────────
-const NUM_STRINGS      := 6
-const HIT_X            := 80.0
-const HIGHWAY_RIGHT    := 1280.0
-const HIGHWAY_TOP      := 60.0
-const HIGHWAY_BOTTOM   := 460.0
-const FRETBOARD_Y      := 480.0
-const FRETBOARD_HEIGHT := 240.0
-const SCROLL_SPEED     := 200.0
-const LOOKAHEAD_SECS   := 6.0
-const TICKS_PER_BEAT   := 960
-const BPM_DEFAULT      := 120.0
+const NUM_STRINGS    := 6
+const TICKS_PER_BEAT := 960
+const BPM_DEFAULT    := 120.0
+const LOOKAHEAD_SECS := 4.0
 
-# String colors (E2=red, A=yellow, D=blue, G=orange, B=green, e5=purple)
+# Perspective camera constants (simulate Rocksmith 3D highway)
+const VP             := Vector2(640.0, 120.0)  # vanishing point (top center)
+const HIT_Y          := 545.0                  # y of hit zone (near player)
+const HIGHWAY_LEFT   := 60.0                   # left edge at hit zone
+const HIGHWAY_RIGHT_X := 1220.0               # right edge at hit zone
+const FRETBOARD_Y    := 558.0                  # top of fretboard strip
+const FRETBOARD_H    := 135.0                  # height of fretboard strip
+const NUM_FRETS      := 24
+const VIEWPORT_W     := 1280.0
+const VIEWPORT_H     := 720.0
+
+# String colors: E2=red, A=yellow, D=blue, G=orange, B=green, e5=purple
 const STRING_COLORS := [
-	Color(1.0, 0.2, 0.2),   # E2 - red
-	Color(1.0, 0.9, 0.1),   # A  - yellow
-	Color(0.2, 0.5, 1.0),   # D  - blue
-	Color(1.0, 0.5, 0.1),   # G  - orange
-	Color(0.2, 0.9, 0.2),   # B  - green
-	Color(0.8, 0.2, 1.0),   # e5 - purple
+	Color(1.0, 0.2, 0.2),
+	Color(1.0, 0.9, 0.1),
+	Color(0.2, 0.5, 1.0),
+	Color(1.0, 0.5, 0.1),
+	Color(0.2, 0.9, 0.2),
+	Color(0.8, 0.2, 1.0),
 ]
 
 const DOUBLE_DOT_FRETS := [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]
@@ -30,7 +34,6 @@ var notes: Array = []
 var current_tick: float = 0.0
 var ticks_per_sec: float = 0.0
 var song_path: String = ""
-
 static var current_song_path: String = ""
 
 func _ready() -> void:
@@ -42,13 +45,20 @@ func _ready() -> void:
 	ticks_per_sec = (BPM_DEFAULT / 60.0) * TICKS_PER_BEAT
 
 func _load_demo_notes() -> void:
+	var patterns = [
+		[0, 0], [1, 2], [2, 2], [3, 2],
+		[0, 0], [1, 2], [2, 2], [3, 2],
+		[0, 5], [1, 5], [2, 5],
+		[0, 7], [1, 7], [2, 7],
+		[3, 9], [4, 9], [5, 9],
+		[5, 12], [4, 10], [3, 9], [2, 7], [1, 5], [0, 3],
+	]
 	var t = 0
-	for measure in range(8):
-		for beat in range(4):
-			var string_idx = randi() % 6
-			var fret = randi() % 12
-			notes.append({"string": string_idx, "fret": fret, "tick": t, "duration_ticks": 480})
-			t += 480
+	var dur = 480
+	for rep in 8:
+		for p in patterns:
+			notes.append({"string": p[0], "fret": p[1], "tick": t, "duration_ticks": dur})
+			t += dur
 	notes.sort_custom(func(a, b): return a.tick < b.tick)
 
 func _load_song(path: String) -> void:
@@ -66,110 +76,166 @@ func _process(delta: float) -> void:
 	current_tick += delta * ticks_per_sec
 	queue_redraw()
 
-func _note_x(note_tick: float) -> float:
-	var ticks_from_now = note_tick - current_tick
-	var secs_from_now = ticks_from_now / ticks_per_sec
-	var frac = secs_from_now / LOOKAHEAD_SECS
-	return HIT_X + frac * (HIGHWAY_RIGHT - HIT_X)
+# ── perspective helpers ────────────────────────────────────────────────────────
 
-func _string_row_y(string_idx: int) -> float:
-	var row_h = (HIGHWAY_BOTTOM - HIGHWAY_TOP) / NUM_STRINGS
-	return HIGHWAY_TOP + (string_idx + 0.5) * row_h
+## Returns depth in [0.0, 1.0]: 0 = at player (hit zone), 1 = far (VP)
+func _depth_for_tick(note_tick: float) -> float:
+	var secs_ahead = (note_tick - current_tick) / max(ticks_per_sec, 1.0)
+	return clamp(secs_ahead / LOOKAHEAD_SECS, 0.0, 1.0)
+
+## Returns string fraction [0.0=left/E2 .. 1.0=right/e5]
+func _string_frac(si: int) -> float:
+	return (si + 0.5) / float(NUM_STRINGS)
+
+## Project highway coordinates to 2D screen space.
+## string_frac: 0=left(E2) .. 1=right(e5)
+## depth:       0=near (hit zone) .. 1=far (vanishing point)
+func _project(string_frac: float, depth: float) -> Vector2:
+	var t = 1.0 - pow(1.0 - depth, 1.8)
+	var x_near = HIGHWAY_LEFT + string_frac * (HIGHWAY_RIGHT_X - HIGHWAY_LEFT)
+	var x = lerp(x_near, VP.x, t)
+	var y = lerp(HIT_Y, VP.y, t)
+	return Vector2(x, y)
+
+# ── drawing ────────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
+	_draw_background()
 	_draw_highway()
-	_draw_fretboard()
 	_draw_notes()
-	_draw_fretboard_indicators()
+	_draw_hit_zone()
+	_draw_fretboard()
+
+func _draw_background() -> void:
+	draw_rect(Rect2(0, 0, VIEWPORT_W, VIEWPORT_H), Color(0.02, 0.04, 0.09))
+	# Subtle gradient from top (lighter) to bottom (dark)
+	for i in 12:
+		var alpha = (1.0 - float(i) / 12.0) * 0.25
+		var h = float(i) * 45.0
+		draw_rect(Rect2(0, h, VIEWPORT_W, 50.0), Color(0.05, 0.08, 0.18, alpha))
 
 func _draw_highway() -> void:
-	draw_rect(Rect2(0, HIGHWAY_TOP - 10, HIGHWAY_RIGHT, HIGHWAY_BOTTOM - HIGHWAY_TOP + 20), Color(0.05, 0.05, 0.1))
+	# Highway trapezoid (dark panel)
+	var tl = _project(0.0, 1.0)
+	var tr = _project(1.0, 1.0)
+	var br = _project(1.0, 0.0)
+	var bl = _project(0.0, 0.0)
+	draw_colored_polygon(PackedVector2Array([tl, tr, br, bl]), Color(0.05, 0.06, 0.15))
 
+	# Depth / fret lines (horizontal bars in perspective)
+	for i in range(1, 22):
+		var d = float(i) / 22.0
+		var p_l = _project(0.0, d)
+		var p_r = _project(1.0, d)
+		var alpha = lerp(0.45, 0.03, d)
+		draw_line(p_l, p_r, Color(0.4, 0.4, 0.55, alpha), lerp(2.2, 0.4, d))
+
+	# String lanes (colored lines converging to VP)
 	for si in NUM_STRINGS:
-		var y = _string_row_y(si)
-		var row_h = (HIGHWAY_BOTTOM - HIGHWAY_TOP) / NUM_STRINGS
-		if si % 2 == 0:
-			draw_rect(Rect2(HIT_X, y - row_h / 2, HIGHWAY_RIGHT - HIT_X, row_h), Color(0.08, 0.08, 0.12))
-		draw_line(Vector2(HIT_X, y), Vector2(HIGHWAY_RIGHT, y), STRING_COLORS[si].darkened(0.3), 1.5)
-
-	draw_line(Vector2(HIT_X, HIGHWAY_TOP), Vector2(HIT_X, HIGHWAY_BOTTOM), Color(1, 1, 1, 0.8), 3)
-
-func _draw_fretboard() -> void:
-	var fb_rect = Rect2(0, FRETBOARD_Y, HIGHWAY_RIGHT, FRETBOARD_HEIGHT)
-	draw_rect(fb_rect, Color(0.15, 0.10, 0.05))
-
-	var row_h = FRETBOARD_HEIGHT / NUM_STRINGS
-
-	for si in NUM_STRINGS:
-		var y = FRETBOARD_Y + (si + 0.5) * row_h
-		draw_line(Vector2(0, y), Vector2(HIGHWAY_RIGHT, y), STRING_COLORS[si], 2)
-
-	var num_frets = 24
-	for f in range(num_frets + 1):
-		var x = f * (HIGHWAY_RIGHT / num_frets)
-		draw_line(Vector2(x, FRETBOARD_Y), Vector2(x, FRETBOARD_Y + FRETBOARD_HEIGHT), Color(0.6, 0.6, 0.6, 0.5), 1)
-
-	for f in [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
-		var x = f * (HIGHWAY_RIGHT / num_frets)
-		draw_string(ThemeDB.fallback_font, Vector2(x - 8, FRETBOARD_Y + FRETBOARD_HEIGHT + 15), str(f),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.7, 0.2))
-
-	for f in DOUBLE_DOT_FRETS:
-		var x = (f - 0.5) * (HIGHWAY_RIGHT / num_frets)
-		if f == 12:
-			draw_circle(Vector2(x, FRETBOARD_Y + row_h * 2.5), 4, Color(0.5, 0.5, 0.5, 0.6))
-			draw_circle(Vector2(x, FRETBOARD_Y + row_h * 3.5), 4, Color(0.5, 0.5, 0.5, 0.6))
-		else:
-			draw_circle(Vector2(x, FRETBOARD_Y + FRETBOARD_HEIGHT / 2), 4, Color(0.5, 0.5, 0.5, 0.6))
+		var frac = _string_frac(si)
+		var p_near = _project(frac, 0.0)
+		var p_far  = _project(frac, 1.0)
+		draw_line(p_near, p_far, STRING_COLORS[si].darkened(0.3), 2.5)
 
 func _draw_notes() -> void:
 	var lookahead_ticks = LOOKAHEAD_SECS * ticks_per_sec
-	var row_h = (HIGHWAY_BOTTOM - HIGHWAY_TOP) / NUM_STRINGS
-	var note_h = row_h * 0.6
-
+	# Collect visible notes, draw far-to-near (painter's algorithm)
+	var visible: Array = []
 	for note in notes:
-		var ticks_from_now = note.tick - current_tick
-		if ticks_from_now < -note.duration_ticks or ticks_from_now > lookahead_ticks:
-			continue
+		var ticks_ahead = note.tick - current_tick
+		if ticks_ahead >= -note.duration_ticks and ticks_ahead <= lookahead_ticks:
+			visible.append(note)
+	visible.sort_custom(func(a, b):
+		return (a.tick - current_tick) > (b.tick - current_tick)
+	)
 
-		var x = _note_x(note.tick)
-		if x < 0 or x > HIGHWAY_RIGHT:
-			continue
+	for note in visible:
+		var depth = _depth_for_tick(float(note.tick))
+		var si = int(note.string)
+		var frac = _string_frac(si)
+		var col  = STRING_COLORS[si]
+		var pos  = _project(frac, depth)
 
-		var y = _string_row_y(note.string)
-		var color = STRING_COLORS[note.string]
+		var h = lerp(26.0, 3.0, depth)
+		var dur_secs = float(note.duration_ticks) / max(ticks_per_sec, 1.0)
+		var w = max(lerp(72.0, 9.0, depth) * clamp(dur_secs / 0.5, 0.35, 3.0), h)
 
 		if note.fret == 0:
-			draw_arc(Vector2(x, y), note_h * 0.5, 0, TAU, 32, color, 2.0)
+			# Open string: ring
+			draw_arc(pos, h * 0.55, 0, TAU, 20, col, lerp(3.0, 1.0, depth))
 		else:
-			var w = max(20.0, note.duration_ticks / ticks_per_sec * SCROLL_SPEED * 0.3)
-			var rect = Rect2(x - w / 2, y - note_h / 2, w, note_h)
-			draw_rect(rect, color)
-			draw_string(ThemeDB.fallback_font, Vector2(x - 6, y + 5), str(note.fret),
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+			var rect = Rect2(pos.x - w / 2, pos.y - h / 2, w, h)
+			draw_rect(rect, col)
+			draw_rect(rect, col.lightened(0.5), false, lerp(2.2, 0.5, depth))
+			# Fret label when close enough
+			if depth < 0.45:
+				var fsize = int(lerp(15.0, 7.0, depth / 0.45))
+				draw_string(ThemeDB.fallback_font,
+					Vector2(pos.x - fsize * 0.38, pos.y + fsize * 0.38),
+					str(note.fret), HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, Color.WHITE)
 
-func _draw_fretboard_indicators() -> void:
-	var num_frets = 24
-	var fret_w = HIGHWAY_RIGHT / num_frets
-	var row_h = FRETBOARD_HEIGHT / NUM_STRINGS
-	var lookahead_ticks = 1.0 * ticks_per_sec
+func _draw_hit_zone() -> void:
+	# White hit line at depth=0
+	draw_line(_project(0.0, 0.0), _project(1.0, 0.0), Color(1, 1, 1, 0.85), 4)
+	# Hit circles per string
+	for si in NUM_STRINGS:
+		var pos = _project(_string_frac(si), 0.0)
+		var col = STRING_COLORS[si]
+		draw_circle(pos, 16, col.darkened(0.2))
+		draw_arc(pos, 16, 0, TAU, 32, col.lightened(0.5), 2.5)
 
-	var nearest_note = {}
+func _draw_fretboard() -> void:
+	# Flat fretboard strip at very bottom (like Rocksmith)
+	draw_rect(Rect2(0, FRETBOARD_Y, VIEWPORT_W, FRETBOARD_H), Color(0.11, 0.07, 0.03))
+	draw_line(Vector2(0, FRETBOARD_Y), Vector2(VIEWPORT_W, FRETBOARD_Y),
+		Color(0.55, 0.55, 0.55, 0.7), 2)
+
+	var row_h  = FRETBOARD_H / NUM_STRINGS
+	var fret_w = VIEWPORT_W / NUM_FRETS
+
+	# String rows
+	for si in NUM_STRINGS:
+		var y = FRETBOARD_Y + (si + 0.5) * row_h
+		draw_line(Vector2(0, y), Vector2(VIEWPORT_W, y), STRING_COLORS[si], 2)
+
+	# Fret lines
+	for f in range(NUM_FRETS + 1):
+		var x = f * fret_w
+		draw_line(Vector2(x, FRETBOARD_Y), Vector2(x, FRETBOARD_Y + FRETBOARD_H),
+			Color(0.55, 0.55, 0.55, 0.4), 1)
+
+	# Fret number labels (inside fretboard, at bottom edge)
+	for f in [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
+		var x = f * fret_w
+		draw_string(ThemeDB.fallback_font,
+			Vector2(x - 8, FRETBOARD_Y + FRETBOARD_H - 4),
+			str(f), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.9, 0.7, 0.2))
+
+	# Position dot markers
+	for f in DOUBLE_DOT_FRETS:
+		var x = (f - 0.5) * fret_w
+		if f == 12:
+			draw_circle(Vector2(x, FRETBOARD_Y + row_h * 2.3), 4, Color(0.5, 0.5, 0.5, 0.6))
+			draw_circle(Vector2(x, FRETBOARD_Y + row_h * 3.7), 4, Color(0.5, 0.5, 0.5, 0.6))
+		else:
+			draw_circle(Vector2(x, FRETBOARD_Y + FRETBOARD_H * 0.5), 4, Color(0.5, 0.5, 0.5, 0.6))
+
+	# Finger indicator dots: one dot per string (nearest upcoming fretted note)
+	var nearest_note := {}
 	for si in NUM_STRINGS:
 		nearest_note[si] = null
-
+	var lookahead_ticks = 1.0 * ticks_per_sec
 	for note in notes:
 		var dt = note.tick - current_tick
 		if dt >= 0 and dt <= lookahead_ticks:
-			var si = note.string
+			var si = int(note.string)
 			if nearest_note[si] == null or note.tick < nearest_note[si].tick:
 				nearest_note[si] = note
-
+	var dot_r = min(row_h * 0.42, fret_w * 0.4)
 	for si in NUM_STRINGS:
 		var note = nearest_note[si]
 		if note == null or note.fret == 0:
 			continue
 		var x = (note.fret - 0.5) * fret_w
 		var y = FRETBOARD_Y + (si + 0.5) * row_h
-		var radius = min(row_h * 0.42, fret_w * 0.4)
-		draw_circle(Vector2(x, y), radius, STRING_COLORS[si].lightened(0.3))
+		draw_circle(Vector2(x, y), dot_r, STRING_COLORS[si].lightened(0.3))

@@ -31,6 +31,7 @@ func _process(delta: float) -> bool:
 func _take_screenshot() -> void:
 	screenshot_count += 1
 	var fname = "user://screenshots/screenshot_%02d.png" % screenshot_count
-	get_root().get_viewport().get_texture().get_image().save_png(
-		ProjectSettings.globalize_path(fname))
+	await get_tree().process_frame
+	var img = get_root().get_viewport().get_texture().get_image()
+	img.save_png(ProjectSettings.globalize_path(fname))
 	print("Screenshot %d saved to %s" % [screenshot_count, fname])

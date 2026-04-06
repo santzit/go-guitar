@@ -1,3 +1,4 @@
+class_name MusicPlay
 extends Node2D
 
 # ── constants ──────────────────────────────────────────────────────────────────

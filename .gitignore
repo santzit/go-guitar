@@ -2,6 +2,12 @@
 .godot/
 .nomedia
 
+# GDExtension compiled binaries
+addons/gp_extension/bin/
+
+# Rust build artifacts
+gp_extension/target/
+
 # Godot-specific ignores
 .import/
 export.cfg

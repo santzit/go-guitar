@@ -1,159 +1,148 @@
 ## Fretboard -- static 24×6 fretboard strip at the hit zone (Z = 0).
 ##
-## All visual elements are MeshInstance3D / Label3D created in _ready().
-## Finger indicator dots are updated per frame in _process().
+## All visual elements are instantiated from .tscn component scenes.
+## Mesh geometry is defined in the scene files; this script handles
+## positioning, coloring, and per-frame finger indicator updates.
 extends Node3D
 
 const GC = preload("res://scripts/guitar_constants.gd")
 
-# Double-dot inlay Y positions (between rows, using vis-row fractions)
-const _UPPER_DOT_Y := 1.5   # between string rows 1 and 2
-const _LOWER_DOT_Y := 4.5   # between string rows 4 and 5
+# ── Prototype scenes (mesh geometry lives here, not in code) ──────────────────
+const _SCENE_FRET_WIRE     := preload("res://scenes/components/FretWire.tscn")
+const _SCENE_FRET_WIRE_OCT := preload("res://scenes/components/FretWireOct.tscn")
+const _SCENE_STRING_LINE   := preload("res://scenes/components/StringLine.tscn")
+const _SCENE_INLAY_DOT     := preload("res://scenes/components/InlayDot.tscn")
+const _SCENE_FINGER_IND    := preload("res://scenes/components/FingerIndicator.tscn")
+
+# Digit scenes 0-9 for fret number display
+const _DIGIT_SCENES: Array = [
+	preload("res://scenes/digits/Digit_0.tscn"),
+	preload("res://scenes/digits/Digit_1.tscn"),
+	preload("res://scenes/digits/Digit_2.tscn"),
+	preload("res://scenes/digits/Digit_3.tscn"),
+	preload("res://scenes/digits/Digit_4.tscn"),
+	preload("res://scenes/digits/Digit_5.tscn"),
+	preload("res://scenes/digits/Digit_6.tscn"),
+	preload("res://scenes/digits/Digit_7.tscn"),
+	preload("res://scenes/digits/Digit_8.tscn"),
+	preload("res://scenes/digits/Digit_9.tscn"),
+]
+
+# Double-dot inlay Y positions (between string rows)
+const _UPPER_DOT_Y := 1.5
+const _LOWER_DOT_Y := 4.5
 
 var notes:    Array = []
 var playback: float = 0.0
 
-var _dot_meshes: Array = []   # Array[MeshInstance3D], one per string
-var _dot_labels: Array = []   # Array[Label3D],        one per string (child of dot)
+var _dot_nodes:  Array = []   # Array[MeshInstance3D], one per string
+var _dot_frets:  Array = []   # Array[int], cached fret per indicator (-1 = none)
 
 
 func _ready() -> void:
-	_create_background()
 	_create_fret_wires()
 	_create_string_lines()
 	_create_inlay_dots()
 	_create_fret_labels()
-	_create_finger_dots()
+	_create_finger_indicators()
 
 
 func _process(_delta: float) -> void:
-	_update_finger_dots()
+	_update_finger_indicators()
 
 
-# ── Static mesh builders ───────────────────────────────────────────────────────
-
-func _create_background() -> void:
-	pass  # transparent — no background mesh; strings and fret wires define the fretboard
-
+# ── Static mesh builders (instantiate from .tscn) ─────────────────────────────
 
 func _create_fret_wires() -> void:
 	for f in range(GC.NUM_FRETS + 1):
-		var is_oct: bool   = (f == 0 or f == 12 or f == 24)
-		var alpha: float   = 0.90 if is_oct else 0.55
-		var thickness: float = 0.05 * (2.0 if is_oct else 1.2)
-		var mi  := MeshInstance3D.new()
-		var box := BoxMesh.new()
-		box.size = Vector3(thickness, float(GC.NUM_STRINGS), GC.FRETBOARD_THICK + 0.02)
-		mi.mesh = box
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(
-			GC.FB_FRET_COLOR.r,
-			GC.FB_FRET_COLOR.g,
-			GC.FB_FRET_COLOR.b,
-			alpha
+		var is_oct: bool = (f == 0 or f == 12 or f == 24)
+		var wire: MeshInstance3D = (
+			_SCENE_FRET_WIRE_OCT.instantiate() if is_oct
+			else _SCENE_FRET_WIRE.instantiate()
 		)
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mi.material_override = mat
-		mi.position = Vector3(
-			float(f),
-			float(GC.NUM_STRINGS) * 0.5,
-			GC.FRETBOARD_THICK * 0.5
-		)
-		add_child(mi)
+		wire.position = Vector3(float(f), float(GC.NUM_STRINGS) * 0.5, GC.FRETBOARD_THICK * 0.5)
+		add_child(wire)
 
 
 func _create_string_lines() -> void:
 	for vis in range(GC.NUM_STRINGS):
-		var col: Color  = GC.STRING_COLORS[vis]
-		var mi   := MeshInstance3D.new()
-		var box  := BoxMesh.new()
-		box.size = Vector3(float(GC.NUM_FRETS), 0.06, GC.FRETBOARD_THICK + 0.04)
-		mi.mesh = box
-		var mat := StandardMaterial3D.new()
+		var col: Color = GC.STRING_COLORS[vis]
+		var line: MeshInstance3D = _SCENE_STRING_LINE.instantiate()
+		# Duplicate material so each string can have its own color
+		var mat: StandardMaterial3D = line.get_active_material(0).duplicate()
 		mat.albedo_color = Color(col.r, col.g, col.b, 0.75)
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mi.material_override = mat
-		mi.position = Vector3(
+		line.material_override = mat
+		line.position = Vector3(
 			float(GC.NUM_FRETS) * 0.5,
 			GC.string_y(vis),
 			GC.FRETBOARD_THICK * 0.5
 		)
-		add_child(mi)
+		add_child(line)
 
 
 func _create_inlay_dots() -> void:
 	for f: int in GC.DOT_FRETS:
 		var fx: float = GC.fret_x(f)
 		if f in GC.DOUBLE_FRETS:
-			_make_inlay(fx, _UPPER_DOT_Y)
-			_make_inlay(fx, _LOWER_DOT_Y)
+			_place_inlay(fx, _UPPER_DOT_Y)
+			_place_inlay(fx, _LOWER_DOT_Y)
 		else:
-			_make_inlay(fx, float(GC.NUM_STRINGS) * 0.5)
+			_place_inlay(fx, float(GC.NUM_STRINGS) * 0.5)
 
 
-func _make_inlay(fx: float, fy: float) -> void:
-	var mi     := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.18
-	sphere.height = 0.36
-	mi.mesh = sphere
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.70, 0.70, 0.50, 0.85)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mi.material_override = mat
-	mi.position = Vector3(fx, fy, GC.FRETBOARD_THICK + 0.12)
-	add_child(mi)
+func _place_inlay(fx: float, fy: float) -> void:
+	var dot: MeshInstance3D = _SCENE_INLAY_DOT.instantiate()
+	dot.position = Vector3(fx, fy, GC.FRETBOARD_THICK + 0.12)
+	add_child(dot)
 
 
 func _create_fret_labels() -> void:
+	# Place digit scenes below each labelled fret
 	for f: int in [1, 3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
-		var lbl := Label3D.new()
-		lbl.text          = str(f)
-		lbl.font_size     = 18
-		lbl.modulate      = Color(0.70, 0.70, 0.50, 0.90)
-		lbl.billboard     = BaseMaterial3D.BILLBOARD_ENABLED
-		lbl.double_sided  = true
-		lbl.position      = Vector3(GC.fret_x(f), -0.65, GC.FRETBOARD_THICK + 0.10)
-		add_child(lbl)
+		var base_x: float = GC.fret_x(f)
+		var base_y: float = -0.65
+		var base_z: float = GC.FRETBOARD_THICK + 0.10
+		_place_number(f, base_x, base_y, base_z)
 
 
-func _create_finger_dots() -> void:
+## Compose a fret number from digit scenes (supports 1–24).
+func _place_number(n: int, cx: float, cy: float, cz: float) -> void:
+	var tens: int = n / 10
+	var ones: int = n % 10
+	if tens > 0:
+		var d1 := _DIGIT_SCENES[tens].instantiate() as Label3D
+		d1.modulate = Color(0.70, 0.70, 0.50, 0.90)
+		d1.position = Vector3(cx - 0.13, cy, cz)
+		add_child(d1)
+		var d2 := _DIGIT_SCENES[ones].instantiate() as Label3D
+		d2.modulate = Color(0.70, 0.70, 0.50, 0.90)
+		d2.position = Vector3(cx + 0.13, cy, cz)
+		add_child(d2)
+	else:
+		var d := _DIGIT_SCENES[ones].instantiate() as Label3D
+		d.modulate = Color(0.70, 0.70, 0.50, 0.90)
+		d.position = Vector3(cx, cy, cz)
+		add_child(d)
+
+
+func _create_finger_indicators() -> void:
 	for si in range(GC.NUM_STRINGS):
 		var vis: int   = GC.vis_for_si(si)
 		var col: Color = GC.STRING_COLORS[vis]
 
-		# Sphere mesh (one per string; hidden until a note is near)
-		var mi     := MeshInstance3D.new()
-		var sphere := SphereMesh.new()
-		sphere.radius = 0.35
-		sphere.height = 0.70
-		mi.mesh = sphere
-		var mat := StandardMaterial3D.new()
+		var ind: MeshInstance3D = _SCENE_FINGER_IND.instantiate()
+		var mat: StandardMaterial3D = ind.get_active_material(0).duplicate()
 		mat.albedo_color = col
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mi.material_override = mat
-		mi.visible = false
-		add_child(mi)
-		_dot_meshes.append(mi)
-
-		# Fret number label (child of the sphere so it moves with it)
-		var lbl := Label3D.new()
-		lbl.text         = ""
-		lbl.font_size    = 22
-		lbl.modulate     = Color.WHITE
-		lbl.billboard    = BaseMaterial3D.BILLBOARD_ENABLED
-		lbl.double_sided = true
-		lbl.position     = Vector3(0.0, 0.0, 0.4)
-		mi.add_child(lbl)
-		_dot_labels.append(lbl)
+		ind.material_override = mat
+		ind.visible = false
+		add_child(ind)
+		_dot_nodes.append(ind)
+		_dot_frets.append(-1)
 
 
-# ── Per-frame finger dot update ───────────────────────────────────────────────
+# ── Per-frame finger indicator update ─────────────────────────────────────────
 
-func _update_finger_dots() -> void:
-	# Build nearest[si] = note closest to playback within FINGER_PREVIEW window
+func _update_finger_indicators() -> void:
 	var nearest: Array = []
 	nearest.resize(GC.NUM_STRINGS)
 
@@ -169,16 +158,45 @@ func _update_finger_dots() -> void:
 			nearest[si] = note
 
 	for si in range(GC.NUM_STRINGS):
-		var mi:  MeshInstance3D = _dot_meshes[si]
-		var lbl: Label3D        = _dot_labels[si]
+		var ind: MeshInstance3D = _dot_nodes[si]
 		var nv: Variant = nearest[si]
 		if nv == null:
-			mi.visible = false
-			lbl.text   = ""
+			ind.visible = false
+			if _dot_frets[si] != -1:
+				_clear_digit_children(ind)
+				_dot_frets[si] = -1
 			continue
 
-		var fret: int   = int(nv["fret"])
-		var vis:  int   = GC.vis_for_si(si)
-		mi.visible  = true
-		mi.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.FRETBOARD_THICK + 0.38)
-		lbl.text    = str(fret)
+		var fret: int = int(nv["fret"])
+		var vis:  int = GC.vis_for_si(si)
+		ind.visible  = true
+		ind.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.FRETBOARD_THICK + 0.12)
+
+		if fret != _dot_frets[si]:
+			_clear_digit_children(ind)
+			_attach_digit_children(ind, fret)
+			_dot_frets[si] = fret
+
+
+## Remove digit scene children added previously.
+func _clear_digit_children(parent: Node3D) -> void:
+	for child in parent.get_children():
+		child.queue_free()
+
+
+## Attach digit scene children to show the fret number on the indicator face.
+func _attach_digit_children(parent: Node3D, fret: int) -> void:
+	var tens: int = fret / 10
+	var ones: int = fret % 10
+	var z_off: float = 0.12   # in front of box face (box depth = 0.20)
+	if tens > 0:
+		var d1: Node3D = _DIGIT_SCENES[tens].instantiate()
+		d1.position = Vector3(-0.14, 0.0, z_off)
+		parent.add_child(d1)
+		var d2: Node3D = _DIGIT_SCENES[ones].instantiate()
+		d2.position = Vector3(0.14, 0.0, z_off)
+		parent.add_child(d2)
+	else:
+		var d: Node3D = _DIGIT_SCENES[ones].instantiate()
+		d.position = Vector3(0.0, 0.0, z_off)
+		parent.add_child(d)

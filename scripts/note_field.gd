@@ -1,20 +1,37 @@
 ## NoteField -- 3D note blocks flying through the highway.
 ##
-## Notes are placed at their exact (fret_x, string_y, note_z) in 3D world space.
-## Uses a fixed pool of MeshInstance3D / Label3D pairs for efficiency.
+## Uses a fixed pool of NoteBlock.tscn instances for efficiency.
+## Mesh geometry is defined in the NoteBlock scene; this script
+## handles positioning, coloring, visibility, and fret digits.
 extends Node3D
 
 const GC = preload("res://scripts/guitar_constants.gd")
 
-const POOL_SIZE        := 128   # max simultaneously visible notes
-const VISIBILITY_BUFFER := 0.4  # keep notes visible this many seconds after hit
+# ── Prototype scenes ──────────────────────────────────────────────────────────
+const _SCENE_NOTE := preload("res://scenes/components/NoteBlock.tscn")
+
+const _DIGIT_SCENES: Array = [
+	preload("res://scenes/digits/Digit_0.tscn"),
+	preload("res://scenes/digits/Digit_1.tscn"),
+	preload("res://scenes/digits/Digit_2.tscn"),
+	preload("res://scenes/digits/Digit_3.tscn"),
+	preload("res://scenes/digits/Digit_4.tscn"),
+	preload("res://scenes/digits/Digit_5.tscn"),
+	preload("res://scenes/digits/Digit_6.tscn"),
+	preload("res://scenes/digits/Digit_7.tscn"),
+	preload("res://scenes/digits/Digit_8.tscn"),
+	preload("res://scenes/digits/Digit_9.tscn"),
+]
+
+const POOL_SIZE         := 128
+const VISIBILITY_BUFFER := 0.4
 
 var notes:    Array = []
 var playback: float = 0.0
 
-var _pool_mi:   Array = []   # Array[MeshInstance3D]
-var _pool_mats: Array = []   # Array[StandardMaterial3D]
-var _pool_lbl:  Array = []   # Array[Label3D]  (fret number on each note)
+var _pool_mi:    Array = []   # Array[MeshInstance3D]
+var _pool_mats:  Array = []   # Array[StandardMaterial3D] (one duplicate per slot)
+var _pool_frets: Array = []   # Array[int] cached fret (-1 = none)
 
 
 func _ready() -> void:
@@ -29,42 +46,26 @@ func _process(_delta: float) -> void:
 
 func _build_pool() -> void:
 	for _i in range(POOL_SIZE):
-		var mi  := MeshInstance3D.new()
-		var box := BoxMesh.new()
-		box.size = Vector3(GC.NOTE_W, GC.NOTE_H, 0.20)
-		mi.mesh = box
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color.WHITE
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var mi: MeshInstance3D = _SCENE_NOTE.instantiate()
+		# Duplicate material so each slot can have its own string color
+		var mat: StandardMaterial3D = mi.get_active_material(0).duplicate()
 		mi.material_override = mat
 		mi.visible = false
 		add_child(mi)
 		_pool_mi.append(mi)
 		_pool_mats.append(mat)
-
-		# Fret number label (child, faces camera)
-		var lbl := Label3D.new()
-		lbl.text         = ""
-		lbl.font_size    = 18
-		lbl.modulate     = Color.WHITE
-		lbl.billboard    = BaseMaterial3D.BILLBOARD_ENABLED
-		lbl.double_sided = true
-		lbl.position     = Vector3(0.0, 0.0, 0.12)
-		mi.add_child(lbl)
-		_pool_lbl.append(lbl)
+		_pool_frets.append(-1)
 
 
 # ── Per-frame note placement ──────────────────────────────────────────────────
 
 func _update_notes() -> void:
-	# Gather visible notes
 	var visible: Array = []
 	for note: Dictionary in notes:
 		var tth: float = float(note["time"]) - playback
 		if tth >= -VISIBILITY_BUFFER and tth <= GC.LOOK_AHEAD:
 			visible.append(note)
 
-	# Sort back-to-front so later notes draw on top
 	visible.sort_custom(func(a, b): return float(a["time"]) > float(b["time"]))
 
 	var idx := 0
@@ -73,7 +74,6 @@ func _update_notes() -> void:
 			break
 		var mi:  MeshInstance3D    = _pool_mi[idx]
 		var mat: StandardMaterial3D = _pool_mats[idx]
-		var lbl: Label3D            = _pool_lbl[idx]
 
 		var si:   int   = int(note["string_index"])
 		var fret: int   = int(note["fret"])
@@ -82,12 +82,41 @@ func _update_notes() -> void:
 		var col:  Color = GC.STRING_COLORS[vis]
 
 		mat.albedo_color = col
-		mi.position  = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
-		mi.visible   = true
-		lbl.text     = str(fret) if fret > 0 else "0"
+		mi.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
+		mi.visible  = true
+
+		if fret != _pool_frets[idx]:
+			_clear_digits(mi)
+			if fret >= 0:
+				_attach_digits(mi, fret)
+			_pool_frets[idx] = fret
+
 		idx += 1
 
-	# Hide unused pool slots
 	for i in range(idx, POOL_SIZE):
 		_pool_mi[i].visible = false
-		_pool_lbl[i].text   = ""
+		if _pool_frets[i] != -1:
+			_clear_digits(_pool_mi[i])
+			_pool_frets[i] = -1
+
+
+func _clear_digits(parent: Node3D) -> void:
+	for child in parent.get_children():
+		child.queue_free()
+
+
+func _attach_digits(parent: Node3D, fret: int) -> void:
+	var tens: int    = fret / 10
+	var ones: int    = fret % 10
+	var z_off: float = 0.12
+	if tens > 0:
+		var d1: Node3D = _DIGIT_SCENES[tens].instantiate()
+		d1.position = Vector3(-0.12, 0.0, z_off)
+		parent.add_child(d1)
+		var d2: Node3D = _DIGIT_SCENES[ones].instantiate()
+		d2.position = Vector3(0.12, 0.0, z_off)
+		parent.add_child(d2)
+	else:
+		var d: Node3D = _DIGIT_SCENES[ones].instantiate()
+		d.position = Vector3(0.0, 0.0, z_off)
+		parent.add_child(d)

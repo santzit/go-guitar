@@ -75,7 +75,7 @@ func _process(_delta: float) -> void:
 		var vis:  int  = GC.vis_for_si(si)
 		var tth:  float = float(nv["time"]) - playback
 		ind.visible  = true
-		ind.position = Vector3(GC.lane_x(vis), 0.15, GC.note_z(tth))
+		ind.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
 
 		if fret != _dot_frets[si]:
 			_clear_digits(ind)

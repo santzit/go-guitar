@@ -1,9 +1,12 @@
 ## GuitarConstants -- shared 3D world constants and helpers (Node3D scene).
 ##
-## 3D Coordinate System (Highland-design wiki spec):
-##   X = lane position  (lane_x(vis) = (vis - 2.5) * LANE_SPACING, centered at 0)
-##   Y = height above highway surface (0 = surface level)
-##   Z = depth  (hit zone = Z=0, notes spawn at Z=-HIGHWAY_LENGTH and approach Z=0)
+## 3D Coordinate System (Highland-design wiki):
+##   X = fret position   (fret_x(f) = f - 0.5;  fret 1 = 0.5 … fret 24 = 23.5)
+##   Y = string height   (string_y(vis) = vis + 0.5;  Low-E = 0.5 … High-e = 5.5)
+##   Z = time depth      (hit zone = Z=0, notes spawn at Z=-HIGHWAY_LENGTH)
+##
+## The highway is 24 lanes wide (one per fret) × 6 rows tall (one per string).
+## Camera tracks the active fret in X; the rest is pure Camera3D perspective.
 ##
 ## Include via:  const GC = preload("res://scripts/guitar_constants.gd")
 
@@ -23,23 +26,25 @@ const HIT_LATE_MS  := 80
 const NUM_STRINGS := 6
 const NUM_FRETS   := 24
 
-# ── Lane layout (Highland-design wiki) ────────────────────────────────────────
-const LANE_SPACING := 0.22     ## units between lane centers (wiki default: 0.22)
-const HW_WIDTH     := LANE_SPACING * 5.0   ## = 1.1 units (outermost lane center to center)
+# ── World spacing ──────────────────────────────────────────────────────────────
+const FRET_SPACING   := 1.0    ## 1 unit per fret  → highway width  = 24 units
+const STRING_SPACING := 1.0    ## 1 unit per string → highway height =  6 units
+const HIGHWAY_WIDTH  := 24.0   ## NUM_FRETS * FRET_SPACING
+const HIGHWAY_HEIGHT :=  6.0   ## NUM_STRINGS * STRING_SPACING
 
 # ── Camera ─────────────────────────────────────────────────────────────────────
-const CAM_HEIGHT     := 2.0    ## camera Y elevation above highway surface
-const CAM_Z_OFFSET   := 1.0    ## camera Z behind the hit zone (positive = behind)
-const CAM_LOOK_Y     := 0.0    ## look-at target Y
-const CAM_LOOK_Z     := -5.0   ## look-at target Z (deep into the highway)
-const CAM_FOV        := 80.0   ## vertical FOV (degrees)
-const CAM_LERP_SPEED := 2.5    ## reserved for future camera moves
+const CAM_HEIGHT     := 7.0    ## camera Y elevation above highway surface
+const CAM_Z_OFFSET   := 10.0   ## camera Z behind the hit zone (positive = behind)
+const CAM_LOOK_Y     := 3.0    ## look-at target Y (center of 6-string height)
+const CAM_LOOK_Z     := -10.0  ## look-at target Z (10 units into the highway)
+const CAM_FOV        := 70.0   ## vertical FOV (degrees)
+const CAM_LERP_SPEED := 2.5    ## camera lerp speed (X tracking)
 const CAM_TRACK_PAST := 0.5    ## seconds after note hit that camera still tracks it
 
 # ── Mesh sizing ────────────────────────────────────────────────────────────────
-const NOTE_W          := 0.17  ## note box X width  (< LANE_SPACING for visible gaps)
-const NOTE_H          := 0.17  ## note box Y height
-const NOTE_D          := 0.17  ## note box Z depth
+const NOTE_W          := 0.75  ## note box X width   (fits inside 1-unit fret lane)
+const NOTE_H          := 0.75  ## note box Y height  (fits inside 1-unit string row)
+const NOTE_D          := 0.30  ## note box Z depth
 const FRETBOARD_THICK := 0.25  ## fretboard Z thickness (fretboard component only)
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
@@ -64,10 +69,15 @@ const DOUBLE_FRETS := [12, 24]
 
 # ── World-coordinate helpers ───────────────────────────────────────────────────
 
-## X position of string lane for visual index vis.
-## vis=0 (Low-E) → -0.55;  vis=5 (High-e) → +0.55  (centered at X=0).
-static func lane_x(vis: int) -> float:
-	return (float(vis) - 2.5) * LANE_SPACING
+## X centre of fret f in world space.
+## fret 1 → X=0.5;  fret 24 → X=23.5  (24 lanes spanning X=0…24).
+static func fret_x(f: int) -> float:
+	return float(f) - 0.5
+
+## Y centre of visual string vis.
+## vis=0 (Low-E) → Y=0.5;  vis=5 (High-e) → Y=5.5.
+static func string_y(vis: int) -> float:
+	return float(vis) + 0.5
 
 ## Z position of a note tth seconds before the hit zone.
 ## tth=0 → z=0 (hit line);  tth=LOOKAHEAD_S → z=-HIGHWAY_LENGTH.
@@ -78,14 +88,6 @@ static func note_z(tth: float) -> float:
 static func vis_for_si(si: int) -> int:
 	return NUM_STRINGS - 1 - clampi(si, 0, NUM_STRINGS - 1)
 
-## 3D X centre of fret f — used by fretboard component only.
-static func fret_x(f: int) -> float:
-	return float(f) - 0.5
-
-## 3D Y centre of visual string vis — used by fretboard component only.
-static func string_y(vis: int) -> float:
-	return float(vis) + 0.5
-
-## Camera X — highway is narrow and centered at X=0, so always returns 0.
-static func camera_x_for_fret(_active_fret: int) -> float:
-	return 0.0
+## Camera X: tracks the active fret horizontally across the 24-fret highway.
+static func camera_x_for_fret(active_fret: int) -> float:
+	return fret_x(clampi(active_fret, 1, NUM_FRETS))

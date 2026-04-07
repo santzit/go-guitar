@@ -8,7 +8,7 @@ emission = Color(0.95, 0.90, 0.60, 1.0)
 emission_energy_multiplier = 0.8
 
 [sub_resource type="BoxMesh" id="BoxMesh_1"]
-size = Vector3(1.4, 0.04, 0.06)
+size = Vector3(24.0, 7.0, 0.08)
 material = SubResource("StandardMaterial3D_1")
 
 [node name="HitLine" type="MeshInstance3D"]

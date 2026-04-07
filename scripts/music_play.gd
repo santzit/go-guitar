@@ -39,7 +39,7 @@ func _ready() -> void:
 	_audio_player = AudioStreamPlayer.new()
 	add_child(_audio_player)
 	_load_song()
-	_camera_x = 0.0
+	_camera_x = GC.HIGHWAY_WIDTH * 0.5   # start at horizontal centre of 24 frets
 	_apply_camera()
 
 
@@ -148,9 +148,19 @@ func _process(delta: float) -> void:
 	_update_hud()
 
 
-func _update_camera(_delta: float) -> void:
-	# Highway is centered at X=0; camera X stays fixed at 0
-	_camera_x = 0.0
+func _update_camera(delta: float) -> void:
+	# Find the nearest note in time and track its fret position in X
+	var nearest_fret := 12
+	var best_score   := INF
+	for note: Dictionary in _notes:
+		var tth: float = float(note["time"]) - _playback
+		if tth >= -GC.CAM_TRACK_PAST and tth <= GC.LOOK_AHEAD:
+			var score := absf(tth)
+			if score < best_score:
+				best_score   = score
+				nearest_fret = int(note["fret"])
+	var target_x: float = GC.camera_x_for_fret(nearest_fret)
+	_camera_x = lerpf(_camera_x, target_x, GC.CAM_LERP_SPEED * delta)
 	_apply_camera()
 
 

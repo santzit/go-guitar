@@ -3,6 +3,10 @@ extends Node2D
 
 const GC = preload("res://scripts/guitar_constants.gd")
 
+# Row fractions for double-dot inlay markers (upper and lower dot position)
+const DOUBLE_DOT_ROW_UPPER := 1.5   # between rows 1 and 2
+const DOUBLE_DOT_ROW_LOWER := 4.5   # between rows 4 and 5
+
 var notes:    Array = []
 var playback: float = 0.0
 
@@ -52,8 +56,8 @@ func _draw_inlay_dots() -> void:
 	for f: int in GC.DOT_FRETS:
 		var fx: float = GC.fret_center_x(f)
 		if f in GC.DOUBLE_FRETS:
-			draw_circle(Vector2(fx, GC.FRETBOARD_Y + rh * 1.5), 4.0, Color(0.70, 0.70, 0.50, 0.85))
-			draw_circle(Vector2(fx, GC.FRETBOARD_Y + rh * 4.5), 4.0, Color(0.70, 0.70, 0.50, 0.85))
+			draw_circle(Vector2(fx, GC.FRETBOARD_Y + rh * DOUBLE_DOT_ROW_UPPER), 4.0, Color(0.70, 0.70, 0.50, 0.85))
+			draw_circle(Vector2(fx, GC.FRETBOARD_Y + rh * DOUBLE_DOT_ROW_LOWER), 4.0, Color(0.70, 0.70, 0.50, 0.85))
 		else:
 			draw_circle(Vector2(fx, GC.FRETBOARD_Y + GC.FRETBOARD_H * 0.50), 4.0,
 				Color(0.70, 0.70, 0.50, 0.85))

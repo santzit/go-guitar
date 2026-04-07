@@ -2,7 +2,8 @@ extends SceneTree
 
 const GC = preload("res://scripts/guitar_constants.gd")
 
-var _tick: int = 0
+var _tick:         int  = 0
+var _tick_rendered: bool = false
 var _scene: Node = null
 var _times := [0.0, 7.5, 15.0, 22.5, 30.0]
 
@@ -38,5 +39,3 @@ func _process(_delta: float) -> bool:
 	else:
 		_tick_rendered = true
 	return false
-
-var _tick_rendered: bool = false

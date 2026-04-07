@@ -1,26 +1,25 @@
-## music_play.gd — Integrated highway + fretboard perspective renderer
+## music_play.gd — Highway with travelling virtual-fretboard card
 ##
-## Layout: one continuous 3-D perspective scene.
+## Layout:
 ##   • Highway (y < HIT_Y):  dark navy, 6 lanes converge at VP, notes approach.
-##   • Fretboard (y ≥ HIT_Y): guitar neck continues below, strings at same LANE_X,
-##     horizontal fret lines (guitar-proportional spacing), finger indicator dots.
-##   • Notes land on the fretboard strings at HIT_Y — lane X is shared by both.
+##   • Virtual fretboard card: a perspective-projected copy of the static fretboard
+##     that travels through the highway (far→near) carrying finger-indicator dots.
+##     At depth=0 it lands exactly on the static fretboard strip below.
+##   • Static fretboard strip (y ≥ FRETBOARD_Y): traditional horizontal tab view.
 ##
 ## String mapping: SNG si=0=High-e → vis=5 = rightmost lane = LANE_X[5]=1030
 extends Node2D
 
-const VP             := Vector2(640, 115)   # vanishing point
-const HIT_Y          := 470.0              # hit zone = top of fretboard
-const LOOK_AHEAD     := 5.0
-const NUM_STRINGS    := 6
-const FRETBOARD_Y    := HIT_Y              # fretboard starts at hit zone
-const FRETBOARD_H    := 245.0             # simulates guitar scale length
-const NUM_FRETS      := 24
+const VP          := Vector2(640, 130)
+const HIT_Y       := 595.0
+const LOOK_AHEAD  := 5.0
+const NUM_STRINGS := 6
+const FRETBOARD_Y := 608.0
+const FRETBOARD_H := 108.0
+const NUM_FRETS   := 24
 const FINGER_PREVIEW := 3.0
-const NECK_MARGIN    := 28.0              # px beyond outermost string on each side
 
 # Lane X at hit zone: vis=0 Low-E (left) … vis=5 High-e (right)
-# Shared by highway lanes AND fretboard string columns.
 const LANE_X: Array[float] = [110.0, 294.0, 478.0, 662.0, 846.0, 1030.0]
 
 # Rocksmith 2014 string colours (vis index: 0=Low E … 5=High e)
@@ -33,19 +32,12 @@ const STRING_COLORS: Array[Color] = [
 	Color(0.25, 0.90, 1.00),   # High e  — cyan
 ]
 
-# String gauge thickness (Low E thickest → High e thinnest)
-const STRING_THICK: Array[float] = [3.5, 2.8, 2.2, 1.7, 1.3, 1.0]
-
-const HIT_COLOR    := Color(1.0, 1.0, 1.0, 0.95)
-const HW_BG        := Color(0.02, 0.03, 0.08, 1.0)   # very dark navy
-const LANE_COLOR   := Color(0.35, 0.70, 0.95, 0.75)  # light blue lane lines
-const FRET_COL     := Color(0.35, 0.70, 0.95, 0.40)  # highway depth grid
-const FB_NECK_COL  := Color(0.10, 0.07, 0.04, 1.0)   # dark rosewood
-const FB_NUT_COL   := Color(0.82, 0.77, 0.56, 1.0)   # bone nut
-const FB_FRET_COL  := Color(0.60, 0.58, 0.50, 0.95)  # metal fret wire
-const FB_DOT_COL   := Color(0.55, 0.55, 0.40, 0.80)  # position markers
-const FB_SIDE_COL  := Color(0.32, 0.22, 0.10, 1.0)   # neck edge
-
+const HIT_COLOR   := Color(1.0, 1.0, 1.0, 0.95)
+const HW_BG       := Color(0.02, 0.03, 0.08, 1.0)
+const LANE_COLOR  := Color(0.35, 0.70, 0.95, 0.75)
+const FRET_COL    := Color(0.35, 0.70, 0.95, 0.40)
+const FB_BG_COLOR := Color(0.07, 0.05, 0.03, 1.0)
+const FB_FT_COLOR := Color(0.28, 0.25, 0.18, 1.0)
 const DOT_FRETS    := [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]
 const DOUBLE_FRETS := [12, 24]
 
@@ -121,6 +113,7 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	_draw_highway()
+	_draw_virtual_fretboard()   # card travels highway far→near, lands on strip
 	_draw_notes()
 	_draw_fretboard()
 	_draw_hud()
@@ -163,8 +156,123 @@ func _draw_highway() -> void:
 		draw_arc(Vector2(lx, HIT_Y), 10.0, 0, TAU, 32, col, 2.0)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Notes
+# Virtual fretboard card — travels through the highway and lands on the strip
 # ─────────────────────────────────────────────────────────────────────────────
+func _draw_virtual_fretboard() -> void:
+	# 1. Find nearest fretted note per string within FINGER_PREVIEW ────────────
+	var nearest: Array = []
+	nearest.resize(NUM_STRINGS)
+	for i in range(NUM_STRINGS):
+		nearest[i] = null
+	# Only consider notes that are at least 1.0 s away so the card is visibly
+	# in the highway (not already at the fretboard strip level).
+	for note: Dictionary in _notes:
+		var si   := int(note["string_index"])
+		var fret := int(note["fret"])
+		if fret == 0:
+			continue  # skip open strings
+		var tth := float(note["time"]) - _playback
+		if tth < 1.0 or tth > FINGER_PREVIEW:
+			continue
+		if si < 0 or si >= NUM_STRINGS:
+			continue
+		if nearest[si] == null or float(note["time"]) < float(nearest[si]["time"]):
+			nearest[si] = note
+
+	# 2. Position the card at the soonest qualifying note ─────────────────────
+	var min_tth: float = LOOK_AHEAD + 1.0
+	for si in range(NUM_STRINGS):
+		if nearest[si] != null:
+			var tth := float(nearest[si]["time"]) - _playback
+			if tth < min_tth:
+				min_tth = tth
+	if min_tth > LOOK_AHEAD:
+		return
+
+	# depth=1 → card at VP (tiny), depth=0 → card at static fretboard strip
+	var depth  := clampf(min_tth / LOOK_AHEAD, 0.0, 1.0)
+	var card_s := 1.0 - depth   # scale: 0=far, 1=full size
+
+	if card_s < 0.03:
+		return   # too small to draw
+
+	# 3. Perspective-lerp helper: project fretboard-strip (x,y) toward VP ─────
+	# At depth=0  → returns (x, y) exactly = static fretboard position
+	# At depth=1  → returns VP
+	var row_h := FRETBOARD_H / float(NUM_STRINGS)
+
+	# Card boundary in fretboard-strip coordinates
+	var fb_x0 := 10.0
+	var fb_x1 := 1270.0
+	var fb_y0 := FRETBOARD_Y
+	var fb_y1 := FRETBOARD_Y + FRETBOARD_H
+
+	# 4. Draw background trapezoid ────────────────────────────────────────────
+	var tl := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(fb_y0, VP.y, depth))
+	var tr := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(fb_y0, VP.y, depth))
+	var br := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(fb_y1, VP.y, depth))
+	var bl := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(fb_y1, VP.y, depth))
+	var bg_alpha := clampf(card_s * 0.80, 0.0, 0.80)
+	draw_colored_polygon(
+		PackedVector2Array([tl, tr, br, bl]),
+		Color(0.07, 0.05, 0.03, bg_alpha))
+
+	# 5. String rows: horizontal colored lines across the card ─────────────────
+	for vis in range(NUM_STRINGS):
+		var sy  := FRETBOARD_Y + (vis + 0.5) * row_h
+		var p0  := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy, VP.y, depth))
+		var p1  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy, VP.y, depth))
+		var col := STRING_COLORS[vis]
+		# Tinted row background
+		var row_top    := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy - row_h * 0.5, VP.y, depth))
+		var row_top_r  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy - row_h * 0.5, VP.y, depth))
+		var row_bot    := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy + row_h * 0.5, VP.y, depth))
+		var row_bot_r  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy + row_h * 0.5, VP.y, depth))
+		draw_colored_polygon(
+			PackedVector2Array([row_top, row_top_r, row_bot_r, row_bot]),
+			Color(col.r, col.g, col.b, 0.10 * card_s))
+		# Center line
+		draw_line(p0, p1,
+			Color(col.r, col.g, col.b, 0.85 * card_s),
+			maxf(0.5, 1.8 * card_s))
+
+	# 6. Fret divider lines: selected frets only ──────────────────────────────
+	for f: int in [0, 3, 5, 7, 9, 12, 15, 17, 24]:
+		var fx   := _fret_x(f)
+		var fy_a := Vector2(lerpf(fx, VP.x, depth), lerpf(fb_y0, VP.y, depth))
+		var fy_b := Vector2(lerpf(fx, VP.x, depth), lerpf(fb_y1, VP.y, depth))
+		draw_line(fy_a, fy_b,
+			Color(0.45, 0.40, 0.28, 0.55 * card_s),
+			maxf(0.5, 0.9 * card_s))
+
+	# 7. Finger indicator dots + fret labels ──────────────────────────────────
+	var dot_r  := maxf(2.5, 8.0 * card_s)
+	var font   := ThemeDB.fallback_font
+	for si in range(NUM_STRINGS):
+		var note_v: Variant = nearest[si]
+		if note_v == null:
+			continue
+		var fret := int(note_v["fret"])
+		var vis  := _vis_si(si)
+		# Dot position in fretboard-strip coordinates
+		var dot_fx := (_fret_x(fret - 1) + _fret_x(fret)) * 0.5
+		var dot_fy := FRETBOARD_Y + (vis + 0.5) * row_h
+		# Project toward VP
+		var dot_pos := Vector2(lerpf(dot_fx, VP.x, depth), lerpf(dot_fy, VP.y, depth))
+		var col     := STRING_COLORS[vis]
+		# Outer glow
+		draw_circle(dot_pos, dot_r * 1.6,
+			Color(col.r, col.g, col.b, 0.28 * card_s))
+		# Solid dot
+		draw_circle(dot_pos, dot_r, col)
+		# Fret number (once the card is large enough to be legible)
+		if card_s > 0.35:
+			var fs := maxi(7, int(dot_r * 1.1))
+			draw_string(font,
+				dot_pos + Vector2(-dot_r * 0.9, dot_r * 0.5),
+				str(fret), HORIZONTAL_ALIGNMENT_CENTER,
+				int(dot_r * 2.5), fs, Color.WHITE)
+
 func _draw_notes() -> void:
 	# Sort far-to-near so closer notes render on top (painter's algorithm)
 	var visible: Array = []

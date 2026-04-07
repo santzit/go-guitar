@@ -1,58 +1,40 @@
-## music_play.gd — Highway with travelling virtual-fretboard card
+## music_play.gd -- Orchestrator for the 3D guitar highway scene.
 ##
-## Layout:
-##   • Highway (y < HIT_Y):  dark navy, 6 lanes converge at VP, notes approach.
-##   • Virtual fretboard card: a perspective-projected copy of the static fretboard
-##     that travels through the highway (far→near) carrying finger-indicator dots.
-##     At depth=0 it lands exactly on the static fretboard strip below.
-##   • Static fretboard strip (y ≥ FRETBOARD_Y): traditional horizontal tab view.
+## Responsibilities:
+##   Load song data (from PSARC or demo)
+##   Drive audio playback
+##   Update child components (NoteField, FingerIndicators, Fretboard) each frame
+##   Draw the HUD (song title, timer)
 ##
-## String mapping: SNG si=0=High-e → vis=5 = rightmost lane = LANE_X[5]=1030
+## Scene composition (music_play.tscn):
+##   MusicPlay  (this script)
+##   HighwayGrid     -- pure-visual 24x6 3D grid (highway_grid.gd)
+##   NoteField       -- note blocks in 3D perspective (note_field.gd)
+##   FingerIndicators-- finger dots on the highway (finger_indicators.gd)
+##   Fretboard       -- static fretboard strip (fretboard.gd)
 extends Node2D
 
-const VP          := Vector2(640, 130)
-const HIT_Y       := 595.0
-const LOOK_AHEAD  := 5.0
-const NUM_STRINGS := 6
-const FRETBOARD_Y := 608.0
-const FRETBOARD_H := 108.0
-const NUM_FRETS   := 24
-const FINGER_PREVIEW := 3.0
+const GC = preload("res://scripts/guitar_constants.gd")
 
-# Lane X at hit zone: vis=0 Low-E (left) … vis=5 High-e (right)
-const LANE_X: Array[float] = [110.0, 294.0, 478.0, 662.0, 846.0, 1030.0]
-
-# Rocksmith 2014 string colours (vis index: 0=Low E … 5=High e)
-const STRING_COLORS: Array[Color] = [
-	Color(0.85, 0.10, 0.10),   # Low E   — red
-	Color(1.00, 0.80, 0.00),   # A       — yellow
-	Color(0.05, 0.50, 1.00),   # D       — blue
-	Color(1.00, 0.40, 0.00),   # G       — orange
-	Color(0.10, 0.85, 0.10),   # B       — green
-	Color(0.25, 0.90, 1.00),   # High e  — cyan
-]
-
-const HIT_COLOR   := Color(1.0, 1.0, 1.0, 0.95)
-const HW_BG       := Color(0.02, 0.03, 0.08, 1.0)
-const LANE_COLOR  := Color(0.35, 0.70, 0.95, 0.75)
-const FRET_COL    := Color(0.35, 0.70, 0.95, 0.40)
-const FB_BG_COLOR := Color(0.07, 0.05, 0.03, 1.0)
-const FB_FT_COLOR := Color(0.28, 0.25, 0.18, 1.0)
-const DOT_FRETS    := [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]
-const DOUBLE_FRETS := [12, 24]
-
-var _notes: Array = []
-var _song_length: float = 0.0
-var _title: String = ""
-var _artist: String = ""
-var _playback: float = 0.0
+var _notes:        Array  = []
+var _song_length:  float  = 0.0
+var _title:        String = ""
+var _artist:       String = ""
+var _playback:     float  = 0.0
 var _audio_player: AudioStreamPlayer = null
+
+@onready var _note_field: Node2D = $NoteField
+@onready var _finger_ind: Node2D = $FingerIndicators
+@onready var _fretboard:  Node2D = $Fretboard
+
 
 func _ready() -> void:
 	_audio_player = AudioStreamPlayer.new()
 	add_child(_audio_player)
 	_load_song()
 
+
+# ── Song loading ──────────────────────────────────────────────────────────────
 func _load_song() -> void:
 	var params := get_tree().root.get_node_or_null("MusicPlayParams")
 	if params == null:
@@ -69,377 +51,88 @@ func _load_song() -> void:
 		push_warning("PsarcLoader: " + str(info.get("error", "?")))
 		_load_demo()
 		return
-	_title       = info.get("title",   "Unknown") as String
-	_artist      = info.get("artist",  "Unknown") as String
+	_title       = info.get("title",       "Unknown") as String
+	_artist      = info.get("artist",      "Unknown") as String
 	_song_length = float(info.get("song_length", 0.0))
-	_notes       = info.get("notes",   []) as Array
+	_notes       = info.get("notes",       []) as Array
 	var ogg_bytes: PackedByteArray = loader.load_audio(path)
 	if ogg_bytes.size() > 0:
-		var stream: AudioStreamOggVorbis = AudioStreamOggVorbis.load_from_buffer(ogg_bytes)
+		var stream := AudioStreamOggVorbis.load_from_buffer(ogg_bytes)
 		if stream != null:
 			_audio_player.stream = stream
 			_audio_player.play()
+	_push_notes_to_children()
+
 
 func _load_demo() -> void:
-	_title  = "Demo Song"
-	_artist = "go-guitar"
+	_title       = "Demo Song"
+	_artist      = "go-guitar"
 	_song_length = 30.0
-	# Each string gets its own independent note stream every 0.5 s, offset by
-	# 0.1 s per string so notes are always spread across all lanes at once.
-	# si=0=High e (rightmost), si=5=Low E (leftmost)
+	# One independent note stream per string, staggered 0.09 s.
+	# Fret values spread across frets 1-22 to show the full 24-lane grid.
 	var fret_map: Array[Array] = [
-		[12, 14, 15, 12, 17, 15],  # si=0  High e
-		[0, 1, 3, 5, 3, 1],        # si=1  B
-		[0, 2, 4, 5, 4, 2],        # si=2  G
-		[2, 3, 5, 7, 5, 3],        # si=3  D
-		[2, 4, 5, 7, 5, 4],        # si=4  A
-		[0, 3, 5, 7, 5, 3],        # si=5  Low E (leftmost)
+		[12, 14, 15, 12, 17, 15, 19, 17],  # si=0  High e
+		[1,  3,  5,  7,  5,  3,  8,  10],  # si=1  B
+		[2,  4,  5,  7,  9,  7,  5,  4],   # si=2  G
+		[2,  3,  5,  7,  9,  7,  5,  3],   # si=3  D
+		[2,  4,  5,  7,  8,  7,  5,  4],   # si=4  A
+		[0,  3,  5,  7,  8,  7,  5,  3],   # si=5  Low E
 	]
-	var interval := 0.5   # notes per string every 0.5 s
-	var offset   := 0.09  # stagger each string by 0.09 s
-	for si in range(NUM_STRINGS):
+	var interval := 0.5
+	var offset   := 0.09
+	for si in range(GC.NUM_STRINGS):
 		var t_start := float(si) * offset
 		for beat in range(61):
-			var fi: int = fret_map[si][beat % fret_map[si].size()]
-			_notes.append({"time": t_start + beat * interval, "string_index": si,
-				"fret": fi, "sustain": 0.0})
+			var fret := int(fret_map[si][beat % fret_map[si].size()])
+			_notes.append({
+				"time":         t_start + beat * interval,
+				"string_index": si,
+				"fret":         fret,
+				"sustain":      0.0,
+			})
+	_push_notes_to_children()
 
+
+func _push_notes_to_children() -> void:
+	if _note_field != null: _note_field.notes = _notes
+	if _finger_ind != null: _finger_ind.notes = _notes
+	if _fretboard  != null: _fretboard.notes  = _notes
+
+
+# ── Per-frame update ──────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
 	if _audio_player and _audio_player.playing:
 		_playback = _audio_player.get_playback_position()
 	else:
 		_playback += delta
+	if _note_field != null:
+		_note_field.playback = _playback
+		_note_field.queue_redraw()
+	if _finger_ind != null:
+		_finger_ind.playback = _playback
+		_finger_ind.queue_redraw()
+	if _fretboard != null:
+		_fretboard.playback = _playback
+		_fretboard.queue_redraw()
 	queue_redraw()
 
+
+# ── HUD ───────────────────────────────────────────────────────────────────────
 func _draw() -> void:
-	_draw_highway()
-	_draw_virtual_fretboard()   # card travels highway far→near, lands on strip
-	_draw_notes()
-	_draw_fretboard()
-	_draw_hud()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Highway: dark background, uniform light-blue lane lines, fret grid, hit zone
-# ─────────────────────────────────────────────────────────────────────────────
-func _draw_highway() -> void:
-	# --- Background ---
-	draw_rect(Rect2(0, 0, 1280, HIT_Y + 2.0), HW_BG)
-
-	# --- Lane lines: uniform light blue, one per string + 2 edge borders ---
-	# All lines connect from vanishing point (VP) down to the string position
-	# at the hit zone (HIT_Y) — no per-string colour.
-	var edge_l := LANE_X[0] - 30.0
-	var edge_r := LANE_X[NUM_STRINGS - 1] + 30.0
-	draw_line(Vector2(VP.x, VP.y), Vector2(edge_l, HIT_Y), LANE_COLOR, 2.0)
-	draw_line(Vector2(VP.x, VP.y), Vector2(edge_r, HIT_Y), LANE_COLOR, 2.0)
-	for vis in range(NUM_STRINGS):
-		draw_line(Vector2(VP.x, VP.y), Vector2(LANE_X[vis], HIT_Y), LANE_COLOR, 1.2)
-
-	# --- Fret-depth grid: horizontal lines at regular depth steps ---
-	for step in range(1, 12):
-		var depth := float(step) / 11.0
-		var y := lerpf(HIT_Y, VP.y, depth)
-		var alpha := lerpf(0.45, 0.07, depth)
-		var left_x  := lerpf(edge_l, VP.x, depth)
-		var right_x := lerpf(edge_r, VP.x, depth)
-		draw_line(Vector2(left_x, y), Vector2(right_x, y),
-			Color(FRET_COL.r, FRET_COL.g, FRET_COL.b, alpha), 0.8)
-
-	# --- Hit zone (bright white line) ---
-	draw_line(Vector2(0, HIT_Y), Vector2(1280, HIT_Y), HIT_COLOR, 3.5)
-
-	# --- String indicators at hit zone (colored, so player knows which string) ---
-	for vis in range(NUM_STRINGS):
-		var lx := LANE_X[vis]
-		var col := STRING_COLORS[vis]
-		draw_circle(Vector2(lx, HIT_Y), 10.0, col.darkened(0.25))
-		draw_arc(Vector2(lx, HIT_Y), 10.0, 0, TAU, 32, col, 2.0)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Virtual fretboard card — travels through the highway and lands on the strip
-# ─────────────────────────────────────────────────────────────────────────────
-func _draw_virtual_fretboard() -> void:
-	# 1. Find nearest fretted note per string within FINGER_PREVIEW ────────────
-	var nearest: Array = []
-	nearest.resize(NUM_STRINGS)
-	for i in range(NUM_STRINGS):
-		nearest[i] = null
-	# Only consider notes that are at least 1.0 s away so the card is visibly
-	# in the highway (not already at the fretboard strip level).
-	for note: Dictionary in _notes:
-		var si   := int(note["string_index"])
-		var fret := int(note["fret"])
-		if fret == 0:
-			continue  # skip open strings
-		var tth := float(note["time"]) - _playback
-		if tth < 1.0 or tth > FINGER_PREVIEW:
-			continue
-		if si < 0 or si >= NUM_STRINGS:
-			continue
-		if nearest[si] == null or float(note["time"]) < float(nearest[si]["time"]):
-			nearest[si] = note
-
-	# 2. Position the card at the soonest qualifying note ─────────────────────
-	var min_tth: float = LOOK_AHEAD + 1.0
-	for si in range(NUM_STRINGS):
-		if nearest[si] != null:
-			var tth := float(nearest[si]["time"]) - _playback
-			if tth < min_tth:
-				min_tth = tth
-	if min_tth > LOOK_AHEAD:
-		return
-
-	# depth=1 → card at VP (tiny), depth=0 → card at static fretboard strip
-	var depth  := clampf(min_tth / LOOK_AHEAD, 0.0, 1.0)
-	var card_s := 1.0 - depth   # scale: 0=far, 1=full size
-
-	# Don't draw when the card has nearly reached the fretboard strip — it
-	# would overlap the static fretboard and look like a double image.
-	if card_s < 0.03 or card_s > 0.97:
-		return
-
-	# 3. Perspective-lerp helper: project fretboard-strip (x,y) toward VP ─────
-	# At depth=0  → returns (x, y) exactly = static fretboard position
-	# At depth=1  → returns VP
-	var row_h := FRETBOARD_H / float(NUM_STRINGS)
-
-	# Card boundary in fretboard-strip coordinates
-	var fb_x0 := 10.0
-	var fb_x1 := 1270.0
-	var fb_y0 := FRETBOARD_Y
-	var fb_y1 := FRETBOARD_Y + FRETBOARD_H
-
-	# 4. Draw background trapezoid ────────────────────────────────────────────
-	var tl := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(fb_y0, VP.y, depth))
-	var tr := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(fb_y0, VP.y, depth))
-	var br := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(fb_y1, VP.y, depth))
-	var bl := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(fb_y1, VP.y, depth))
-	var bg_alpha := clampf(card_s * 0.80, 0.0, 0.80)
-	draw_colored_polygon(
-		PackedVector2Array([tl, tr, br, bl]),
-		Color(0.07, 0.05, 0.03, bg_alpha))
-
-	# 5. String rows: horizontal colored lines across the card ─────────────────
-	for vis in range(NUM_STRINGS):
-		var sy  := FRETBOARD_Y + (vis + 0.5) * row_h
-		var p0  := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy, VP.y, depth))
-		var p1  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy, VP.y, depth))
-		var col := STRING_COLORS[vis]
-		# Tinted row background
-		var row_top    := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy - row_h * 0.5, VP.y, depth))
-		var row_top_r  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy - row_h * 0.5, VP.y, depth))
-		var row_bot    := Vector2(lerpf(fb_x0, VP.x, depth), lerpf(sy + row_h * 0.5, VP.y, depth))
-		var row_bot_r  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy + row_h * 0.5, VP.y, depth))
-		draw_colored_polygon(
-			PackedVector2Array([row_top, row_top_r, row_bot_r, row_bot]),
-			Color(col.r, col.g, col.b, 0.05 * card_s))
-		# Center line
-		draw_line(p0, p1,
-			Color(col.r, col.g, col.b, 0.85 * card_s),
-			maxf(0.5, 1.8 * card_s))
-
-	# 6. Fret divider lines: selected frets only ──────────────────────────────
-	for f: int in [0, 3, 5, 7, 9, 12, 15, 17, 24]:
-		var fx   := _fret_x(f)
-		var fy_a := Vector2(lerpf(fx, VP.x, depth), lerpf(fb_y0, VP.y, depth))
-		var fy_b := Vector2(lerpf(fx, VP.x, depth), lerpf(fb_y1, VP.y, depth))
-		draw_line(fy_a, fy_b,
-			Color(0.45, 0.40, 0.28, 0.55 * card_s),
-			maxf(0.5, 0.9 * card_s))
-
-	# 7. Finger indicator dots + fret labels ──────────────────────────────────
-	var dot_r  := maxf(2.5, 8.0 * card_s)
-	var font   := ThemeDB.fallback_font
-	for si in range(NUM_STRINGS):
-		var note_v: Variant = nearest[si]
-		if note_v == null:
-			continue
-		var fret := int(note_v["fret"])
-		var vis  := _vis_si(si)
-		# Dot position in fretboard-strip coordinates
-		var dot_fx := (_fret_x(fret - 1) + _fret_x(fret)) * 0.5
-		var dot_fy := FRETBOARD_Y + (vis + 0.5) * row_h
-		# Project toward VP
-		var dot_pos := Vector2(lerpf(dot_fx, VP.x, depth), lerpf(dot_fy, VP.y, depth))
-		var col     := STRING_COLORS[vis]
-		# Outer glow
-		draw_circle(dot_pos, dot_r * 1.6,
-			Color(col.r, col.g, col.b, 0.28 * card_s))
-		# Solid dot
-		draw_circle(dot_pos, dot_r, col)
-		# Fret number (once the card is large enough to be legible)
-		if card_s > 0.35:
-			var fs := maxi(7, int(dot_r * 1.1))
-			draw_string(font,
-				dot_pos + Vector2(-dot_r * 0.9, dot_r * 0.5),
-				str(fret), HORIZONTAL_ALIGNMENT_CENTER,
-				int(dot_r * 2.5), fs, Color.WHITE)
-
-func _draw_notes() -> void:
-	# Sort far-to-near so closer notes render on top (painter's algorithm)
-	var visible: Array = []
-	for note: Dictionary in _notes:
-		var tth := float(note["time"]) - _playback
-		if tth >= -0.5 and tth <= LOOK_AHEAD:
-			visible.append(note)
-	visible.sort_custom(func(a, b): return float(a["time"]) > float(b["time"]))
-	
-	for note: Dictionary in visible:
-		var si   := int(note["string_index"])
-		var fret := int(note["fret"])
-		var t    := float(note["time"])
-		var sus  := float(note["sustain"])
-		var tth  := t - _playback
-		var vis  := _vis_si(si)             # visual lane (0=Low E left … 5=High e right)
-		var col  := STRING_COLORS[vis]
-		var depth := clampf(tth / LOOK_AHEAD, 0.0, 1.0)
-		var pos   := _project(si, depth)
-		var scale := lerpf(1.0, 0.15, depth)
-		var hw    := 30.0 * scale
-		var hh    := hw * 0.48
-		
-		# Sustain tail (drawn behind note)
-		if sus > 0.05:
-			var tth_end := (t + sus) - _playback
-			if tth_end > -0.5:
-				var depth_end := clampf(tth_end / LOOK_AHEAD, 0.0, 1.0)
-				var pos_end := _project(si, depth_end)
-				var tail_w := maxf(3.0, hw * 0.35)
-				draw_line(pos_end, pos, col.darkened(0.30), tail_w)
-		
-		if fret == 0:
-			# Open string: outlined ring
-			draw_circle(pos, hw * 0.65, Color(col.r, col.g, col.b, 0.25))
-			draw_arc(pos, hw * 0.65, 0, TAU, 36, col, 2.0 * scale)
-		else:
-			# Fretted note: rounded rectangle with bright edge + fret number
-			var r := Rect2(pos.x - hw, pos.y - hh, hw * 2.0, hh * 2.0)
-			draw_rect(r, col.darkened(0.10))
-			draw_rect(r, col.lightened(0.50), false, maxf(1.0, 1.5 * scale))
-			# Highlight top edge
-			draw_line(Vector2(r.position.x + 2, r.position.y + 1),
-				Vector2(r.end.x - 2, r.position.y + 1),
-				Color(1, 1, 1, 0.5 * scale), maxf(1.0, 2.0 * scale))
-			if scale > 0.30:
-				var fs := int(maxf(8.0, hw * 0.85))
-				draw_string(ThemeDB.fallback_font,
-					pos + Vector2(-hw * 0.45, hh * 0.45),
-					str(fret), HORIZONTAL_ALIGNMENT_CENTER, int(hw * 2.0), fs,
-					Color.WHITE)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Fretboard strip (bottom)
-# ─────────────────────────────────────────────────────────────────────────────
-func _draw_fretboard() -> void:
-	# Dark wood background
-	draw_rect(Rect2(0, FRETBOARD_Y, 1280, FRETBOARD_H), FB_BG_COLOR)
-	
-	# Fret divider lines (vertical silver wires)
-	for f in range(NUM_FRETS + 1):
-		var fx := _fret_x(f)
-		draw_line(Vector2(fx, FRETBOARD_Y), Vector2(fx, FRETBOARD_Y + FRETBOARD_H),
-			FB_FT_COLOR, 1.5)
-	
-	var row_h := FRETBOARD_H / float(NUM_STRINGS)
-	
-	# String lines: one thin colored line per string — NO filled row backgrounds
-	# (filled rects render as vivid bands in Godot's CanvasItem blending)
-	for vis in range(NUM_STRINGS):
-		var sy := FRETBOARD_Y + (vis + 0.5) * row_h
-		var col := STRING_COLORS[vis]
-		draw_line(Vector2(0.0, sy), Vector2(1280.0, sy),
-			Color(col.r, col.g, col.b, 0.55), 1.2)
-	
-	# Position dot markers (ivory/pearl inlays)
-	for f: int in DOT_FRETS:
-		var fx := (_fret_x(f - 1) + _fret_x(f)) * 0.5
-		if f in DOUBLE_FRETS:
-			draw_circle(Vector2(fx, FRETBOARD_Y + FRETBOARD_H * 0.28), 4.5, Color(0.7, 0.7, 0.5))
-			draw_circle(Vector2(fx, FRETBOARD_Y + FRETBOARD_H * 0.72), 4.5, Color(0.7, 0.7, 0.5))
-		else:
-			draw_circle(Vector2(fx, FRETBOARD_Y + FRETBOARD_H * 0.50), 4.5, Color(0.7, 0.7, 0.5))
-	
-	# Fret number labels
-	var font := ThemeDB.fallback_font
-	for f: int in [1, 3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
-		var fx := (_fret_x(f - 1) + _fret_x(f)) * 0.5
-		draw_string(font, Vector2(fx - 5.0, FRETBOARD_Y + FRETBOARD_H - 3.0),
-			str(f), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.5, 0.8))
-	
-	# Finger dots: one per string, nearest upcoming fretted note (skip open strings)
-	var nearest: Array = []
-	nearest.resize(NUM_STRINGS)
-	for i in range(NUM_STRINGS):
-		nearest[i] = null
-	for note: Dictionary in _notes:
-		var si   := int(note["string_index"])
-		var fret := int(note["fret"])
-		if fret == 0:
-			continue
-		var tth := float(note["time"]) - _playback
-		if tth < 0.0 or tth > FINGER_PREVIEW:
-			continue
-		if si < 0 or si >= NUM_STRINGS:
-			continue
-		if nearest[si] == null or float(note["time"]) < float(nearest[si]["time"]):
-			nearest[si] = note
-	var font_fb := ThemeDB.fallback_font
-	for si in range(NUM_STRINGS):
-		var note: Variant = nearest[si]
-		if note == null:
-			continue
-		var fret := int(note["fret"])
-		var vis  := _vis_si(si)
-		var fx   := (_fret_x(fret - 1) + _fret_x(fret)) * 0.5
-		var fy   := FRETBOARD_Y + (vis + 0.5) * row_h
-		var dot_r := minf(row_h * 0.42, 10.0)
-		var col   := STRING_COLORS[vis]
-		# Dark halo so the dot stands out against both the string line and fret lines
-		draw_circle(Vector2(fx, fy), dot_r + 2.5, Color(0.0, 0.0, 0.0, 0.60))
-		draw_circle(Vector2(fx, fy), dot_r, col)
-		# Fret number centred inside the dot
-		var fs := maxi(7, int(dot_r * 1.2))
-		draw_string(font_fb, Vector2(fx - dot_r, fy - fs * 0.5),
-			str(fret), HORIZONTAL_ALIGNMENT_CENTER, int(dot_r * 2.0), fs,
-			Color.WHITE)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HUD
-# ─────────────────────────────────────────────────────────────────────────────
-func _draw_hud() -> void:
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(20, 26),
 		"%s  -  %s" % [_artist, _title],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.90, 0.92, 1.0))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 20,
+		Color(0.90, 0.92, 1.0))
 	var secs  := int(_playback)
 	var total := int(_song_length)
 	draw_string(font, Vector2(20, 50),
 		"%d:%02d / %d:%02d" % [secs / 60, secs % 60, total / 60, total % 60],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.55, 0.60, 0.75))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
+		Color(0.55, 0.60, 0.75))
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
-## Convert SNG string_index → visual lane index.
-## SNG 0=High e (thin), SNG 5=Low E (thick)
-## Visual 0=Low E (leftmost lane), Visual 5=High e (rightmost lane)
-func _vis_si(si: int) -> int:
-	return NUM_STRINGS - 1 - clampi(si, 0, NUM_STRINGS - 1)
-
-## Screen X of the lane for a given SNG string_index.
-func _lane_x(si: int) -> float:
-	return LANE_X[_vis_si(si)]
-
-## 3-D perspective projection.
-## depth=0 → hit zone (HIT_Y), depth=1 → vanishing point (VP).
-func _project(si: int, depth: float) -> Vector2:
-	var lx := _lane_x(si)
-	return Vector2(lerpf(lx, VP.x, depth), lerpf(HIT_Y, VP.y, depth))
-
-func _fret_x(fret: int) -> float:
-	return 10.0 + float(fret) * (1260.0 / float(NUM_FRETS))
-
+# ── Input ─────────────────────────────────────────────────────────────────────
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:

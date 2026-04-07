@@ -23,6 +23,7 @@ const CAM_LOOK_Y     := 2.5    ## look-at target Y (vertical centre of strings)
 const CAM_LOOK_Z     := -5.0   ## look-at target Z
 const CAM_FOV        := 45.0   ## vertical FOV (degrees) — shows ~6 frets wide
 const CAM_LERP_SPEED := 2.5    ## camera X smooth-follow speed
+const CAM_TRACK_PAST := 0.5    ## seconds after note hit that camera still tracks it
 
 # ── Mesh sizing ───────────────────────────────────────────────────────────────
 const NOTE_W          := 0.42  ## note box width  (fraction of 1-unit fret slot)

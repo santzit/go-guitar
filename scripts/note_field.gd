@@ -6,7 +6,8 @@ extends Node3D
 
 const GC = preload("res://scripts/guitar_constants.gd")
 
-const POOL_SIZE := 128   # max simultaneously visible notes
+const POOL_SIZE        := 128   # max simultaneously visible notes
+const VISIBILITY_BUFFER := 0.4  # keep notes visible this many seconds after hit
 
 var notes:    Array = []
 var playback: float = 0.0
@@ -60,7 +61,7 @@ func _update_notes() -> void:
 	var visible: Array = []
 	for note: Dictionary in notes:
 		var tth: float = float(note["time"]) - playback
-		if tth >= -0.4 and tth <= GC.LOOK_AHEAD:
+		if tth >= -VISIBILITY_BUFFER and tth <= GC.LOOK_AHEAD:
 			visible.append(note)
 
 	# Sort back-to-front so later notes draw on top

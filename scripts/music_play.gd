@@ -157,7 +157,7 @@ func _update_camera(delta: float) -> void:
 	for note: Dictionary in _notes:
 		var fret: int   = int(note["fret"])
 		var tth:  float = float(note["time"]) - _playback
-		if fret > 0 and tth >= -0.5 and tth < best_tth:
+		if fret > 0 and tth >= -GC.CAM_TRACK_PAST and tth < best_tth:
 			best_tth  = tth
 			best_fret = fret
 	_target_fret = best_fret

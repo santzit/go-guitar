@@ -1,23 +1,26 @@
-## music_play.gd — Rocksmith-style 3-D perspective highway renderer
+## music_play.gd — Integrated highway + fretboard perspective renderer
 ##
-## String mapping (Rocksmith SNG/PSARC convention):
-##   SNG string_index 0 = High e (thin)  →  rightmost visual lane (vis=5)
-##   SNG string_index 5 = Low  E (thick) →  leftmost  visual lane (vis=0)
-##   Conversion: vis = NUM_STRINGS - 1 - si
+## Layout: one continuous 3-D perspective scene.
+##   • Highway (y < HIT_Y):  dark navy, 6 lanes converge at VP, notes approach.
+##   • Fretboard (y ≥ HIT_Y): guitar neck continues below, strings at same LANE_X,
+##     horizontal fret lines (guitar-proportional spacing), finger indicator dots.
+##   • Notes land on the fretboard strings at HIT_Y — lane X is shared by both.
 ##
-## LANE_X[vis]: screen X of each lane at HIT_Y (vis=0 left, vis=5 right)
+## String mapping: SNG si=0=High-e → vis=5 = rightmost lane = LANE_X[5]=1030
 extends Node2D
 
-const VP          := Vector2(640, 130)
-const HIT_Y       := 595.0
-const LOOK_AHEAD  := 5.0
-const NUM_STRINGS := 6
-const FRETBOARD_Y := 608.0
-const FRETBOARD_H := 108.0
-const NUM_FRETS   := 24
+const VP             := Vector2(640, 115)   # vanishing point
+const HIT_Y          := 470.0              # hit zone = top of fretboard
+const LOOK_AHEAD     := 5.0
+const NUM_STRINGS    := 6
+const FRETBOARD_Y    := HIT_Y              # fretboard starts at hit zone
+const FRETBOARD_H    := 245.0             # simulates guitar scale length
+const NUM_FRETS      := 24
 const FINGER_PREVIEW := 3.0
+const NECK_MARGIN    := 28.0              # px beyond outermost string on each side
 
 # Lane X at hit zone: vis=0 Low-E (left) … vis=5 High-e (right)
+# Shared by highway lanes AND fretboard string columns.
 const LANE_X: Array[float] = [110.0, 294.0, 478.0, 662.0, 846.0, 1030.0]
 
 # Rocksmith 2014 string colours (vis index: 0=Low E … 5=High e)
@@ -30,12 +33,19 @@ const STRING_COLORS: Array[Color] = [
 	Color(0.25, 0.90, 1.00),   # High e  — cyan
 ]
 
-const HIT_COLOR   := Color(1.0, 1.0, 1.0, 0.95)
-const HW_BG       := Color(0.02, 0.03, 0.08, 1.0)   # very dark navy
-const LANE_COLOR  := Color(0.35, 0.70, 0.95, 0.75)  # light blue — all highway lines
-const FRET_COL    := Color(0.35, 0.70, 0.95, 0.40)  # light blue fret grid lines
-const FB_BG_COLOR := Color(0.07, 0.05, 0.03, 1.0)
-const FB_FT_COLOR := Color(0.28, 0.25, 0.18, 1.0)
+# String gauge thickness (Low E thickest → High e thinnest)
+const STRING_THICK: Array[float] = [3.5, 2.8, 2.2, 1.7, 1.3, 1.0]
+
+const HIT_COLOR    := Color(1.0, 1.0, 1.0, 0.95)
+const HW_BG        := Color(0.02, 0.03, 0.08, 1.0)   # very dark navy
+const LANE_COLOR   := Color(0.35, 0.70, 0.95, 0.75)  # light blue lane lines
+const FRET_COL     := Color(0.35, 0.70, 0.95, 0.40)  # highway depth grid
+const FB_NECK_COL  := Color(0.10, 0.07, 0.04, 1.0)   # dark rosewood
+const FB_NUT_COL   := Color(0.82, 0.77, 0.56, 1.0)   # bone nut
+const FB_FRET_COL  := Color(0.60, 0.58, 0.50, 0.95)  # metal fret wire
+const FB_DOT_COL   := Color(0.55, 0.55, 0.40, 0.80)  # position markers
+const FB_SIDE_COL  := Color(0.32, 0.22, 0.10, 1.0)   # neck edge
+
 const DOT_FRETS    := [3, 5, 7, 9, 12, 15, 17, 19, 21, 24]
 const DOUBLE_FRETS := [12, 24]
 

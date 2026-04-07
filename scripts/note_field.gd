@@ -85,7 +85,7 @@ func _update_notes() -> void:
 
 		mat.albedo_color = col
 		mat.emission = col
-		mi.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
+		mi.position = Vector3(GC.lane_x(vis), GC.NOTE_Y, GC.note_z(tth))
 		mi.visible  = true
 
 		if fret != _pool_frets[idx]:

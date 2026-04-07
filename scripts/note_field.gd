@@ -1,64 +1,92 @@
-## NoteField -- note blocks flying through the 24x6 3D highway.
-## Each note is at its exact (fret column, string row) in the perspective grid.
-extends Node2D
+## NoteField -- 3D note blocks flying through the highway.
+##
+## Notes are placed at their exact (fret_x, string_y, note_z) in 3D world space.
+## Uses a fixed pool of MeshInstance3D / Label3D pairs for efficiency.
+extends Node3D
 
 const GC = preload("res://scripts/guitar_constants.gd")
+
+const POOL_SIZE := 128   # max simultaneously visible notes
 
 var notes:    Array = []
 var playback: float = 0.0
 
+var _pool_mi:   Array = []   # Array[MeshInstance3D]
+var _pool_mats: Array = []   # Array[StandardMaterial3D]
+var _pool_lbl:  Array = []   # Array[Label3D]  (fret number on each note)
 
-func _draw() -> void:
+
+func _ready() -> void:
+	_build_pool()
+
+
+func _process(_delta: float) -> void:
+	_update_notes()
+
+
+# ── Pool construction ─────────────────────────────────────────────────────────
+
+func _build_pool() -> void:
+	for _i in range(POOL_SIZE):
+		var mi  := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(GC.NOTE_W, GC.NOTE_H, 0.20)
+		mi.mesh = box
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color.WHITE
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mi.material_override = mat
+		mi.visible = false
+		add_child(mi)
+		_pool_mi.append(mi)
+		_pool_mats.append(mat)
+
+		# Fret number label (child, faces camera)
+		var lbl := Label3D.new()
+		lbl.text         = ""
+		lbl.font_size    = 18
+		lbl.modulate     = Color.WHITE
+		lbl.billboard    = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.double_sided = true
+		lbl.position     = Vector3(0.0, 0.0, 0.12)
+		mi.add_child(lbl)
+		_pool_lbl.append(lbl)
+
+
+# ── Per-frame note placement ──────────────────────────────────────────────────
+
+func _update_notes() -> void:
+	# Gather visible notes
 	var visible: Array = []
 	for note: Dictionary in notes:
 		var tth: float = float(note["time"]) - playback
-		if tth >= -0.3 and tth <= GC.LOOK_AHEAD:
+		if tth >= -0.4 and tth <= GC.LOOK_AHEAD:
 			visible.append(note)
+
+	# Sort back-to-front so later notes draw on top
 	visible.sort_custom(func(a, b): return float(a["time"]) > float(b["time"]))
+
+	var idx := 0
 	for note: Dictionary in visible:
-		_draw_note(note)
+		if idx >= POOL_SIZE:
+			break
+		var mi:  MeshInstance3D    = _pool_mi[idx]
+		var mat: StandardMaterial3D = _pool_mats[idx]
+		var lbl: Label3D            = _pool_lbl[idx]
 
+		var si:   int   = int(note["string_index"])
+		var fret: int   = int(note["fret"])
+		var tth:  float = float(note["time"]) - playback
+		var vis:  int   = GC.vis_for_si(si)
+		var col:  Color = GC.STRING_COLORS[vis]
 
-func _draw_note(note: Dictionary) -> void:
-	var si:    int   = int(note["string_index"])
-	var fret:  int   = int(note["fret"])
-	var t:     float = float(note["time"])
-	var sus:   float = float(note["sustain"])
-	var tth:   float = t - playback
-	var vis:   int   = GC.vis_for_si(si)
-	var col:   Color = GC.STRING_COLORS[vis]
-	var depth: float = GC.depth_for_tth(tth)
-	var scale: float = 1.0 - depth
-	var cx:    float   = GC.fret_center_x(fret)
-	var cy:    float   = GC.string_y(vis)
-	var pos:   Vector2 = GC.project(cx, cy, depth)
-	var fret_w: float = (GC.HW_RIGHT - GC.HW_LEFT) / float(GC.NUM_FRETS)
-	var row_h:  float = GC.string_row_h()
-	var hw: float = maxf(3.0, (fret_w * 0.44) * scale)
-	var hh: float = maxf(2.0, (row_h  * 0.38) * scale)
-	# Sustain tail
-	if sus > 0.05:
-		var tth_end: float = (t + sus) - playback
-		if tth_end > -0.3:
-			var depth_end: float   = GC.depth_for_tth(tth_end)
-			var pos_end:   Vector2 = GC.project(cx, cy, depth_end)
-			draw_line(pos_end, pos, col.darkened(0.35), maxf(2.0, hh * 0.7))
-	# Note body
-	if fret == 0:
-		var r: float = hw * 0.7
-		draw_circle(pos, r, Color(col.r, col.g, col.b, 0.22))
-		draw_arc(pos, r, 0, TAU, 36, col, maxf(1.0, 1.8 * scale))
-	else:
-		var rect := Rect2(pos.x - hw, pos.y - hh, hw * 2.0, hh * 2.0)
-		draw_rect(rect, col.darkened(0.10))
-		draw_rect(rect, col.lightened(0.50), false, maxf(0.8, 1.4 * scale))
-		draw_line(
-			Vector2(rect.position.x + 1, rect.position.y + 1),
-			Vector2(rect.end.x - 1,      rect.position.y + 1),
-			Color(1, 1, 1, 0.45 * scale), maxf(0.8, 1.8 * scale))
-		if scale > 0.28:
-			var fs: int = int(maxf(7.0, hw * 0.90))
-			draw_string(ThemeDB.fallback_font,
-				pos + Vector2(-hw * 0.5, hh * 0.42),
-				str(fret), HORIZONTAL_ALIGNMENT_CENTER,
-				int(hw * 2.2), fs, Color.WHITE)
+		mat.albedo_color = col
+		mi.position  = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
+		mi.visible   = true
+		lbl.text     = str(fret) if fret > 0 else "0"
+		idx += 1
+
+	# Hide unused pool slots
+	for i in range(idx, POOL_SIZE):
+		_pool_mi[i].visible = false
+		_pool_lbl[i].text   = ""

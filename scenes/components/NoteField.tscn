@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/note_field.gd" id="1"]
 
-[node name="NoteField" type="Node2D"]
+[node name="NoteField" type="Node3D"]
 script = ExtResource("1")

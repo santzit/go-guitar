@@ -1,8 +1,10 @@
-## HighwayGrid -- 3D perspective 24-fret × 6-string highway.
+## HighwayGrid -- 3D highway surface per Highland-design wiki spec.
 ##
-## All visual elements are instantiated from .tscn component scenes.
-## String lane lines are thin flat lines (no walls/height) colored per string.
-## No vertical depth dividers — fret boundaries are imaginary.
+## Layout:
+##   - Single narrow surface (PlaneMesh) spanning full highway length
+##   - 6 thin lane lines (one per string) running along Z
+##   - Bright hit line strip at Z=0
+##   - No per-fret mesh dividers (wiki: keep to 1–3 meshes total)
 extends Node3D
 
 const GC = preload("res://scripts/guitar_constants.gd")
@@ -10,26 +12,24 @@ const GC = preload("res://scripts/guitar_constants.gd")
 # ── Prototype scenes ──────────────────────────────────────────────────────────
 const _SCENE_BG          := preload("res://scenes/components/HighwayBackground.tscn")
 const _SCENE_STRING_LANE := preload("res://scenes/components/HighwayStringLane.tscn")
+const _SCENE_HIT_LINE    := preload("res://scenes/components/HitLine.tscn")
 
 
 func _ready() -> void:
 	_create_background()
 	_create_string_lanes()
+	_create_hit_line()
 
 
-# ── Background ────────────────────────────────────────────────────────────────
+# ── Surface ───────────────────────────────────────────────────────────────────
 
 func _create_background() -> void:
 	var bg: MeshInstance3D = _SCENE_BG.instantiate()
-	bg.position = Vector3(
-		float(GC.NUM_FRETS) * 0.5,
-		-0.05,
-		-GC.LOOK_DEPTH * 0.5
-	)
+	bg.position = Vector3(0.0, -0.01, -GC.HIGHWAY_LENGTH * 0.5)
 	add_child(bg)
 
 
-# ── String lane lines (thin flat, colored per string, run full depth) ─────────
+# ── Lane lines (thin strips along Z, one per string) ─────────────────────────
 
 func _create_string_lanes() -> void:
 	for vis in range(GC.NUM_STRINGS):
@@ -39,11 +39,15 @@ func _create_string_lanes() -> void:
 		mat.albedo_color = Color(col.r, col.g, col.b, 0.70)
 		mat.emission_enabled = true
 		mat.emission = col
-		mat.emission_energy_multiplier = 0.25
+		mat.emission_energy_multiplier = 0.30
 		lane.material_override = mat
-		lane.position = Vector3(
-			float(GC.NUM_FRETS) * 0.5,
-			GC.string_y(vis),
-			-GC.LOOK_DEPTH * 0.5
-		)
+		lane.position = Vector3(GC.lane_x(vis), 0.0, -GC.HIGHWAY_LENGTH * 0.5)
 		add_child(lane)
+
+
+# ── Hit line strip at Z=0 ─────────────────────────────────────────────────────
+
+func _create_hit_line() -> void:
+	var hl: MeshInstance3D = _SCENE_HIT_LINE.instantiate()
+	hl.position = Vector3(0.0, 0.01, 0.0)
+	add_child(hl)

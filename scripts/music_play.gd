@@ -21,8 +21,8 @@ var _artist:      String = ""
 var _playback:    float  = 0.0
 
 # Camera tracking state
-var _camera_x:    float  = float(GC.NUM_FRETS) * 0.5
-var _target_fret: int    = 12
+var _camera_x:    float  = 0.0
+var _target_fret: int    = 0
 
 var _audio_player: AudioStreamPlayer = null
 var _lbl_title:    Label = null
@@ -31,7 +31,7 @@ var _lbl_timer:    Label = null
 @onready var _camera:    Camera3D = $Camera3D
 @onready var _note_field: Node3D  = $NoteField
 @onready var _finger_ind: Node3D  = $FingerIndicators
-@onready var _fretboard:  Node3D  = $Fretboard
+# _fretboard is not in scene yet (added in a later iteration)
 
 
 func _ready() -> void:
@@ -39,7 +39,7 @@ func _ready() -> void:
 	_audio_player = AudioStreamPlayer.new()
 	add_child(_audio_player)
 	_load_song()
-	_camera_x = GC.camera_x_for_fret(_target_fret)
+	_camera_x = 0.0
 	_apply_camera()
 
 
@@ -130,7 +130,6 @@ func _load_demo() -> void:
 func _push_notes_to_children() -> void:
 	if _note_field != null: _note_field.notes = _notes
 	if _finger_ind != null: _finger_ind.notes = _notes
-	if _fretboard  != null: _fretboard.notes  = _notes
 
 
 # ── Per-frame update ──────────────────────────────────────────────────────────
@@ -144,26 +143,14 @@ func _process(delta: float) -> void:
 	# Push new playback time to components
 	if _note_field != null: _note_field.playback = _playback
 	if _finger_ind != null: _finger_ind.playback = _playback
-	if _fretboard  != null: _fretboard.playback  = _playback
 
 	_update_camera(delta)
 	_update_hud()
 
 
-func _update_camera(delta: float) -> void:
-	# Find the nearest upcoming fretted note (within look-ahead)
-	var best_fret: int   = _target_fret
-	var best_tth:  float = GC.LOOK_AHEAD + 1.0
-	for note: Dictionary in _notes:
-		var fret: int   = int(note["fret"])
-		var tth:  float = float(note["time"]) - _playback
-		if fret > 0 and tth >= -GC.CAM_TRACK_PAST and tth < best_tth:
-			best_tth  = tth
-			best_fret = fret
-	_target_fret = best_fret
-
-	var target_x: float = GC.camera_x_for_fret(_target_fret)
-	_camera_x = lerpf(_camera_x, target_x, delta * GC.CAM_LERP_SPEED)
+func _update_camera(_delta: float) -> void:
+	# Highway is centered at X=0; camera X stays fixed at 0
+	_camera_x = 0.0
 	_apply_camera()
 
 

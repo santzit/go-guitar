@@ -4,7 +4,6 @@
 [ext_resource type="PackedScene" path="res://scenes/components/HighwayGrid.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/components/NoteField.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/components/FingerIndicators.tscn" id="4"]
-[ext_resource type="PackedScene" path="res://scenes/components/Fretboard.tscn" id="5"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -20,13 +19,11 @@ script = ExtResource("1")
 environment = SubResource("Environment_1")
 
 [node name="Camera3D" type="Camera3D" parent="."]
-fov = 55.0
+fov = 60.0
 
 [node name="HighwayGrid" parent="." instance=ExtResource("2")]
 
 [node name="NoteField" parent="." instance=ExtResource("3")]
 
 [node name="FingerIndicators" parent="." instance=ExtResource("4")]
-
-[node name="Fretboard" parent="." instance=ExtResource("5")]
 

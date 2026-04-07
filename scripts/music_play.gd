@@ -193,8 +193,10 @@ func _draw_virtual_fretboard() -> void:
 	var depth  := clampf(min_tth / LOOK_AHEAD, 0.0, 1.0)
 	var card_s := 1.0 - depth   # scale: 0=far, 1=full size
 
-	if card_s < 0.03:
-		return   # too small to draw
+	# Don't draw when the card has nearly reached the fretboard strip — it
+	# would overlap the static fretboard and look like a double image.
+	if card_s < 0.03 or card_s > 0.97:
+		return
 
 	# 3. Perspective-lerp helper: project fretboard-strip (x,y) toward VP ─────
 	# At depth=0  → returns (x, y) exactly = static fretboard position
@@ -230,7 +232,7 @@ func _draw_virtual_fretboard() -> void:
 		var row_bot_r  := Vector2(lerpf(fb_x1, VP.x, depth), lerpf(sy + row_h * 0.5, VP.y, depth))
 		draw_colored_polygon(
 			PackedVector2Array([row_top, row_top_r, row_bot_r, row_bot]),
-			Color(col.r, col.g, col.b, 0.10 * card_s))
+			Color(col.r, col.g, col.b, 0.05 * card_s))
 		# Center line
 		draw_line(p0, p1,
 			Color(col.r, col.g, col.b, 0.85 * card_s),
@@ -329,36 +331,26 @@ func _draw_notes() -> void:
 # Fretboard strip (bottom)
 # ─────────────────────────────────────────────────────────────────────────────
 func _draw_fretboard() -> void:
+	# Dark wood background
 	draw_rect(Rect2(0, FRETBOARD_Y, 1280, FRETBOARD_H), FB_BG_COLOR)
 	
-	# Fret divider lines
+	# Fret divider lines (vertical silver wires)
 	for f in range(NUM_FRETS + 1):
 		var fx := _fret_x(f)
 		draw_line(Vector2(fx, FRETBOARD_Y), Vector2(fx, FRETBOARD_Y + FRETBOARD_H),
 			FB_FT_COLOR, 1.5)
 	
-	# Fret number labels (selected frets)
-	var font := ThemeDB.fallback_font
-	for f: int in [1, 3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
-		var fx := (_fret_x(f - 1) + _fret_x(f)) * 0.5
-		draw_string(font, Vector2(fx - 5.0, FRETBOARD_Y + FRETBOARD_H - 3.0),
-			str(f), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.5, 0.8))
-	
 	var row_h := FRETBOARD_H / float(NUM_STRINGS)
-	# String rows: vis=0 (Low E) at top, vis=5 (High e) at bottom
-	# Draw each row as a colored background strip + bright center line so the
-	# finger dot is clearly associated with its string.
-	for vis in range(NUM_STRINGS):
-		var ry := FRETBOARD_Y + vis * row_h
-		var sy := ry + row_h * 0.5
-		# Subtle tinted background for this string's row
-		draw_rect(Rect2(0.0, ry, 1280.0, row_h),
-			Color(STRING_COLORS[vis].r, STRING_COLORS[vis].g, STRING_COLORS[vis].b, 0.10))
-		# Center line in the string's color (more visible than 45%-darkened)
-		draw_line(Vector2(0, sy), Vector2(1280, sy),
-			STRING_COLORS[vis].darkened(0.20), 1.8)
 	
-	# Position dot markers
+	# String lines: one thin colored line per string — NO filled row backgrounds
+	# (filled rects render as vivid bands in Godot's CanvasItem blending)
+	for vis in range(NUM_STRINGS):
+		var sy := FRETBOARD_Y + (vis + 0.5) * row_h
+		var col := STRING_COLORS[vis]
+		draw_line(Vector2(0.0, sy), Vector2(1280.0, sy),
+			Color(col.r, col.g, col.b, 0.55), 1.2)
+	
+	# Position dot markers (ivory/pearl inlays)
 	for f: int in DOT_FRETS:
 		var fx := (_fret_x(f - 1) + _fret_x(f)) * 0.5
 		if f in DOUBLE_FRETS:
@@ -367,9 +359,14 @@ func _draw_fretboard() -> void:
 		else:
 			draw_circle(Vector2(fx, FRETBOARD_Y + FRETBOARD_H * 0.50), 4.5, Color(0.7, 0.7, 0.5))
 	
-	# Finger dots: one per string, nearest upcoming FRETTED note (skip open strings).
-	# We skip fret=0 here when building the array so that an open-string note
-	# does not block a fretted note that is also visible ahead in the highway.
+	# Fret number labels
+	var font := ThemeDB.fallback_font
+	for f: int in [1, 3, 5, 7, 9, 12, 15, 17, 19, 21, 24]:
+		var fx := (_fret_x(f - 1) + _fret_x(f)) * 0.5
+		draw_string(font, Vector2(fx - 5.0, FRETBOARD_Y + FRETBOARD_H - 3.0),
+			str(f), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.7, 0.7, 0.5, 0.8))
+	
+	# Finger dots: one per string, nearest upcoming fretted note (skip open strings)
 	var nearest: Array = []
 	nearest.resize(NUM_STRINGS)
 	for i in range(NUM_STRINGS):
@@ -378,7 +375,7 @@ func _draw_fretboard() -> void:
 		var si   := int(note["string_index"])
 		var fret := int(note["fret"])
 		if fret == 0:
-			continue  # skip open strings — show only fretted positions
+			continue
 		var tth := float(note["time"]) - _playback
 		if tth < 0.0 or tth > FINGER_PREVIEW:
 			continue
@@ -396,11 +393,14 @@ func _draw_fretboard() -> void:
 		var fx   := (_fret_x(fret - 1) + _fret_x(fret)) * 0.5
 		var fy   := FRETBOARD_Y + (vis + 0.5) * row_h
 		var dot_r := minf(row_h * 0.42, 10.0)
-		draw_circle(Vector2(fx, fy), dot_r, STRING_COLORS[vis])
-		# Fret number label above the dot so players can verify
-		var fs := maxi(7, int(dot_r * 1.1))
-		draw_string(font_fb, Vector2(fx - dot_r * 0.9, fy - dot_r - 1.0),
-			str(fret), HORIZONTAL_ALIGNMENT_CENTER, int(dot_r * 2.5), fs,
+		var col   := STRING_COLORS[vis]
+		# Dark halo so the dot stands out against both the string line and fret lines
+		draw_circle(Vector2(fx, fy), dot_r + 2.5, Color(0.0, 0.0, 0.0, 0.60))
+		draw_circle(Vector2(fx, fy), dot_r, col)
+		# Fret number centred inside the dot
+		var fs := maxi(7, int(dot_r * 1.2))
+		draw_string(font_fb, Vector2(fx - dot_r, fy - fs * 0.5),
+			str(fret), HORIZONTAL_ALIGNMENT_CENTER, int(dot_r * 2.0), fs,
 			Color.WHITE)
 
 # ─────────────────────────────────────────────────────────────────────────────

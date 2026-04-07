@@ -36,6 +36,9 @@ func _ready() -> void:
 		var ind: MeshInstance3D = _SCENE_FINGER_IND.instantiate()
 		var mat: StandardMaterial3D = ind.get_active_material(0).duplicate()
 		mat.albedo_color = col
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = 0.5
 		ind.material_override = mat
 		ind.visible = false
 		add_child(ind)

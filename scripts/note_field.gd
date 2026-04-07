@@ -49,6 +49,8 @@ func _build_pool() -> void:
 		var mi: MeshInstance3D = _SCENE_NOTE.instantiate()
 		# Duplicate material so each slot can have its own string color
 		var mat: StandardMaterial3D = mi.get_active_material(0).duplicate()
+		mat.emission_enabled = true
+		mat.emission_energy_multiplier = 0.6
 		mi.material_override = mat
 		mi.visible = false
 		add_child(mi)
@@ -82,6 +84,7 @@ func _update_notes() -> void:
 		var col:  Color = GC.STRING_COLORS[vis]
 
 		mat.albedo_color = col
+		mat.emission = col
 		mi.position = Vector3(GC.fret_x(fret), GC.string_y(vis), GC.note_z(tth))
 		mi.visible  = true
 

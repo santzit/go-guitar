@@ -1,13 +1,13 @@
-[gd_scene format=3 uid="uid://comp_fretwire_oct"]
+[gd_scene format=3 uid="uid://comp_hw_string_lane"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
 shading_mode = 2
 transparency = 1
-albedo_color = Color(0.70, 0.60, 0.35, 1.00)
+albedo_color = Color(1.0, 1.0, 1.0, 0.85)
 
 [sub_resource type="BoxMesh" id="BoxMesh_1"]
-size = Vector3(0.10, 6.0, 0.27)
+size = Vector3(24.0, 0.025, 14.0)
 material = SubResource("StandardMaterial3D_1")
 
-[node name="FretWireOct" type="MeshInstance3D"]
+[node name="HighwayStringLane" type="MeshInstance3D"]
 mesh = SubResource("BoxMesh_1")

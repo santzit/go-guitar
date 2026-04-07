@@ -13,6 +13,7 @@ const _SCENE_FRET_WIRE_OCT := preload("res://scenes/components/FretWireOct.tscn"
 const _SCENE_STRING_LINE   := preload("res://scenes/components/StringLine.tscn")
 const _SCENE_INLAY_DOT     := preload("res://scenes/components/InlayDot.tscn")
 const _SCENE_FINGER_IND    := preload("res://scenes/components/FingerIndicator.tscn")
+const _SCENE_FB_BG         := preload("res://scenes/components/FretboardBackground.tscn")
 
 # Digit scenes 0-9 for fret number display
 const _DIGIT_SCENES: Array = [
@@ -40,6 +41,7 @@ var _dot_frets:  Array = []   # Array[int], cached fret per indicator (-1 = none
 
 
 func _ready() -> void:
+	_create_background()
 	_create_fret_wires()
 	_create_string_lines()
 	_create_inlay_dots()
@@ -52,6 +54,16 @@ func _process(_delta: float) -> void:
 
 
 # ── Static mesh builders (instantiate from .tscn) ─────────────────────────────
+
+func _create_background() -> void:
+	var bg: MeshInstance3D = _SCENE_FB_BG.instantiate()
+	bg.position = Vector3(
+		float(GC.NUM_FRETS) * 0.5,
+		float(GC.NUM_STRINGS) * 0.5,
+		GC.FRETBOARD_THICK * 0.5
+	)
+	add_child(bg)
+
 
 func _create_fret_wires() -> void:
 	for f in range(GC.NUM_FRETS + 1):
@@ -70,7 +82,10 @@ func _create_string_lines() -> void:
 		var line: MeshInstance3D = _SCENE_STRING_LINE.instantiate()
 		# Duplicate material so each string can have its own color
 		var mat: StandardMaterial3D = line.get_active_material(0).duplicate()
-		mat.albedo_color = Color(col.r, col.g, col.b, 0.75)
+		mat.albedo_color = Color(col.r, col.g, col.b, 0.90)
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = 0.30
 		line.material_override = mat
 		line.position = Vector3(
 			float(GC.NUM_FRETS) * 0.5,

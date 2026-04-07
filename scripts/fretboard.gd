@@ -33,20 +33,7 @@ func _process(_delta: float) -> void:
 # ── Static mesh builders ───────────────────────────────────────────────────────
 
 func _create_background() -> void:
-	var mi  := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(float(GC.NUM_FRETS), float(GC.NUM_STRINGS), GC.FRETBOARD_THICK)
-	mi.mesh = box
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = GC.FB_BG_COLOR
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mi.material_override = mat
-	mi.position = Vector3(
-		float(GC.NUM_FRETS) * 0.5,
-		float(GC.NUM_STRINGS) * 0.5,
-		GC.FRETBOARD_THICK * 0.5
-	)
-	add_child(mi)
+	pass  # transparent — no background mesh; strings and fret wires define the fretboard
 
 
 func _create_fret_wires() -> void:

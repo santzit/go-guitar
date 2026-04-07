@@ -17,11 +17,11 @@ const NUM_STRINGS := 6
 const NUM_FRETS   := 24
 
 # ── Camera ───────────────────────────────────────────────────────────────────
-const CAM_HEIGHT     := 5.5    ## camera Y elevation
-const CAM_Z_OFFSET   := 7.0    ## camera Z behind hit zone
+const CAM_HEIGHT     := 10.0   ## camera Y elevation
+const CAM_Z_OFFSET   := 16.0   ## camera Z behind hit zone
 const CAM_LOOK_Y     := 2.5    ## look-at target Y (vertical centre of strings)
-const CAM_LOOK_Z     := -5.0   ## look-at target Z
-const CAM_FOV        := 45.0   ## vertical FOV (degrees) — shows ~6 frets wide
+const CAM_LOOK_Z     := -8.0   ## look-at target Z
+const CAM_FOV        := 55.0   ## vertical FOV (degrees)
 const CAM_LERP_SPEED := 2.5    ## camera X smooth-follow speed
 const CAM_TRACK_PAST := 0.5    ## seconds after note hit that camera still tracks it
 

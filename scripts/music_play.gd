@@ -228,10 +228,17 @@ func _draw_fretboard() -> void:
 	
 	var row_h := FRETBOARD_H / float(NUM_STRINGS)
 	# String rows: vis=0 (Low E) at top, vis=5 (High e) at bottom
+	# Draw each row as a colored background strip + bright center line so the
+	# finger dot is clearly associated with its string.
 	for vis in range(NUM_STRINGS):
-		var sy := FRETBOARD_Y + (vis + 0.5) * row_h
+		var ry := FRETBOARD_Y + vis * row_h
+		var sy := ry + row_h * 0.5
+		# Subtle tinted background for this string's row
+		draw_rect(Rect2(0.0, ry, 1280.0, row_h),
+			Color(STRING_COLORS[vis].r, STRING_COLORS[vis].g, STRING_COLORS[vis].b, 0.10))
+		# Center line in the string's color (more visible than 45%-darkened)
 		draw_line(Vector2(0, sy), Vector2(1280, sy),
-			STRING_COLORS[vis].darkened(0.45), 1.2)
+			STRING_COLORS[vis].darkened(0.20), 1.8)
 	
 	# Position dot markers
 	for f: int in DOT_FRETS:
@@ -242,13 +249,18 @@ func _draw_fretboard() -> void:
 		else:
 			draw_circle(Vector2(fx, FRETBOARD_Y + FRETBOARD_H * 0.50), 4.5, Color(0.7, 0.7, 0.5))
 	
-	# Finger dots: one per string, nearest upcoming fretted note
+	# Finger dots: one per string, nearest upcoming FRETTED note (skip open strings).
+	# We skip fret=0 here when building the array so that an open-string note
+	# does not block a fretted note that is also visible ahead in the highway.
 	var nearest: Array = []
 	nearest.resize(NUM_STRINGS)
 	for i in range(NUM_STRINGS):
 		nearest[i] = null
 	for note: Dictionary in _notes:
-		var si  := int(note["string_index"])
+		var si   := int(note["string_index"])
+		var fret := int(note["fret"])
+		if fret == 0:
+			continue  # skip open strings — show only fretted positions
 		var tth := float(note["time"]) - _playback
 		if tth < 0.0 or tth > FINGER_PREVIEW:
 			continue
@@ -256,18 +268,22 @@ func _draw_fretboard() -> void:
 			continue
 		if nearest[si] == null or float(note["time"]) < float(nearest[si]["time"]):
 			nearest[si] = note
+	var font_fb := ThemeDB.fallback_font
 	for si in range(NUM_STRINGS):
 		var note: Variant = nearest[si]
 		if note == null:
 			continue
 		var fret := int(note["fret"])
-		if fret == 0:
-			continue
 		var vis  := _vis_si(si)
 		var fx   := (_fret_x(fret - 1) + _fret_x(fret)) * 0.5
 		var fy   := FRETBOARD_Y + (vis + 0.5) * row_h
 		var dot_r := minf(row_h * 0.42, 10.0)
 		draw_circle(Vector2(fx, fy), dot_r, STRING_COLORS[vis])
+		# Fret number label above the dot so players can verify
+		var fs := maxi(7, int(dot_r * 1.1))
+		draw_string(font_fb, Vector2(fx - dot_r * 0.9, fy - dot_r - 1.0),
+			str(fret), HORIZONTAL_ALIGNMENT_CENTER, int(dot_r * 2.5), fs,
+			Color.WHITE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HUD

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://finger_indicators"]
+
+[ext_resource type="Script" path="res://scripts/finger_indicators.gd" id="1"]
+
+[node name="FingerIndicators" type="Node3D"]
+script = ExtResource("1")

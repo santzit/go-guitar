@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://digit_7"]
+
+[node name="Digit" type="Label3D"]
+text = "7"
+font_size = 28
+billboard = 1
+double_sided = true
+modulate = Color(1, 1, 1, 1)

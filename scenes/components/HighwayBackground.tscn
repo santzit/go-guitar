@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://comp_hw_bg"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
+shading_mode = 2
+albedo_color = Color(0.04, 0.05, 0.15, 1.0)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_1"]
+size = Vector2(7.1, 24.0)
+material = SubResource("StandardMaterial3D_1")
+
+[node name="HighwayBackground" type="MeshInstance3D"]
+mesh = SubResource("PlaneMesh_1")

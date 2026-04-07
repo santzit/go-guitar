@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://highway_grid"]
+
+[ext_resource type="Script" path="res://scripts/highway_grid.gd" id="1"]
+
+[node name="HighwayGrid" type="Node3D"]
+script = ExtResource("1")

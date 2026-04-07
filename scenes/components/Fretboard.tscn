@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://fretboard_strip"]
+
+[ext_resource type="Script" path="res://scripts/fretboard.gd" id="1"]
+
+[node name="Fretboard" type="Node3D"]
+script = ExtResource("1")

@@ -1,0 +1,53 @@
+name: "Copilot Setup Steps"
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - .github/workflows/copilot-setup-steps.yml
+    pull_request:
+        paths:
+            - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+    copilot-setup-steps:
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust build
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      gp_extension/target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('gp_extension/Cargo.lock') }}
+                  restore-keys: ${{ runner.os }}-cargo-
+
+            - name: Install Godot 4.4.1
+              run: |
+                  wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O /tmp/godot.zip
+                  unzip -q /tmp/godot.zip -d /tmp
+                  chmod +x /tmp/Godot_v4.4.1-stable_linux.x86_64
+                  sudo ln -sf /tmp/Godot_v4.4.1-stable_linux.x86_64 /usr/local/bin/godot
+                  godot --version
+
+            - name: Install Python deps (screenshots renderer)
+              run: pip3 install pillow numpy
+
+            - name: Build GDExtension
+              run: |
+                  cargo build --release --manifest-path gp_extension/Cargo.toml
+                  mkdir -p addons/gp_extension/bin
+                  cp gp_extension/target/release/libgp_extension.so addons/gp_extension/bin/

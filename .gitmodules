@@ -1,0 +1,3 @@
+[submodule "vendor/guitar-pitch-detection"]
+	path = vendor/guitar-pitch-detection
+	url = https://github.com/santzit/guitar-pitch-detection-

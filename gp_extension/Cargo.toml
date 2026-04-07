@@ -1,0 +1,18 @@
+[package]
+name = "gp_extension"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+godot = { version = "0.5", features = ["api-4-4"] }
+aes = "0.8"
+cfb-mode = "0.8"
+flate2 = "1"
+guitar-pitch-detection = { path = "../vendor/guitar-pitch-detection" }
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://comp_fretwire"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
+shading_mode = 2
+transparency = 1
+albedo_color = Color(0.55, 0.46, 0.28, 0.80)
+
+[sub_resource type="BoxMesh" id="BoxMesh_1"]
+size = Vector3(0.06, 6.0, 0.27)
+material = SubResource("StandardMaterial3D_1")
+
+[node name="FretWire" type="MeshInstance3D"]
+mesh = SubResource("BoxMesh_1")

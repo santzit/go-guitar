@@ -1,0 +1,23 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; but you can always make it yourself and use it.
+; ...
+
+config_version=5
+
+[application]
+
+config/name="go-guitar"
+config/description="Guitar rhythm game inspired by Rocksmith 2014"
+run/main_scene="res://scenes/main_menu.tscn"
+config/features=PackedStringArray("4.4", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

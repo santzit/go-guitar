@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://comp_finger_indicator"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
+shading_mode = 2
+albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+
+[sub_resource type="BoxMesh" id="BoxMesh_1"]
+size = Vector3(0.75, 0.18, 0.60)
+material = SubResource("StandardMaterial3D_1")
+
+[node name="FingerIndicator" type="MeshInstance3D"]
+mesh = SubResource("BoxMesh_1")
